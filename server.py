@@ -27,6 +27,7 @@ import sqlite3
 import secrets
 import html
 import os
+import hashlib
 from typing import Tuple, Dict, Any, Optional, List
 
 
@@ -116,9 +117,16 @@ def create_user(username: str, email: str, password: str) -> Tuple[bool, str]:
         cur.execute('SELECT id FROM users WHERE username = ? OR email = ?', (username, email))
         if cur.fetchone():
             return False, 'Gebruikersnaam of e‑mail bestaat al.'
+        # Generate a salted hash for the password.  We store the salt and hash
+        # together separated by a dollar sign so we can verify later.  This
+        # avoids storing passwords in plain text and provides basic
+        # protection against rainbow table attacks.
+        salt = secrets.token_hex(16)
+        pwd_hash = hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
+        stored_password = f"{salt}${pwd_hash}"
         cur.execute(
             'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-            (username, email, password)
+            (username, email, stored_password)
         )
         conn.commit()
         return True, 'Account aangemaakt. Je kunt nu inloggen.'
@@ -127,7 +135,15 @@ def create_user(username: str, email: str, password: str) -> Tuple[bool, str]:
 def verify_user(identifier: str, password: str) -> Optional[Dict[str, Any]]:
     """Verify user credentials. Returns user dict if valid."""
     user = get_user_by_username_or_email(identifier)
-    if user and user['password'] == password:
+    if not user:
+        return None
+    # The stored password contains salt and hash separated by a dollar sign.
+    stored = user['password']
+    if '$' not in stored:
+        return None
+    salt, pwd_hash = stored.split('$', 1)
+    provided_hash = hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
+    if provided_hash == pwd_hash:
         return user
     return None
 
