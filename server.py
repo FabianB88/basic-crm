@@ -288,10 +288,19 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     # Create session
                     session_id = secrets.token_hex(16)
                     sessions[session_id] = user['id']
-                    # Set cookie
+                    # Set the session cookie.  Include HttpOnly and SameSite
+                    # attributes to mitigate cross‑site scripting and
+                    # request forgery attacks.  We don't include the
+                    # ``Secure`` attribute because the app may run on
+                    # plain HTTP in development environments.  Hosting
+                    # providers like Render serve over HTTPS and will
+                    # automatically upgrade the cookie to secure.
                     self.send_response(302)
                     self.send_header('Location', '/dashboard')
-                    self.send_header('Set-Cookie', f'session_id={session_id}; Path=/')
+                    self.send_header(
+                        'Set-Cookie',
+                        f'session_id={session_id}; Path=/; HttpOnly; SameSite=Lax'
+                    )
                     self.end_headers()
                 else:
                     self.render_login(error='Ongeldige inloggegevens.')
@@ -311,8 +320,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                 break
             self.send_response(302)
             self.send_header('Location', '/login')
-            # Overwrite cookie to expire it
-            self.send_header('Set-Cookie', 'session_id=; Path=/; Max-Age=0')
+            # Overwrite cookie to expire it.  Preserve SameSite and
+            # HttpOnly attributes for consistency.  ``Max‑Age=0`` causes
+            # browsers to remove the cookie immediately.
+            self.send_header(
+                'Set-Cookie',
+                'session_id=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'
+            )
             self.end_headers()
         elif path == '/dashboard':
             if not logged_in:
