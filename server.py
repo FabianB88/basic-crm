@@ -246,6 +246,11 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     # card styles.  Avoid external dependencies by including everything in
     # the page.  Feel free to customise these values to better match your
     # preferred palette.
+    # Inline CSS definitions.  In addition to layout and colour
+    # variables defined earlier, include rules for tables so that
+    # listings (e.g. the customers page) span the full width and have
+    # generous padding.  Without Bootstrap, we need to style table
+    # elements manually to improve readability.
     styles = '''
     body { margin: 0; font-family: Arial, sans-serif; background-color: #f8f9fa; padding-top: 56px; }
     .navbar { background-color: #c2185b; color: #fff; position: fixed; top: 0; width: 100%; height: 56px; display: flex; align-items: center; padding: 0 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 1000; }
@@ -257,6 +262,23 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     .action-buttons a { display: inline-block; border: 2px solid #c2185b; border-radius: 24px; padding: 0.3rem 0.8rem; color: #c2185b; text-decoration: none; margin-right: 0.5rem; font-size: 0.9rem; }
     .action-buttons a:hover { background-color: #c2185b; color: #fff; }
     .icon { margin-right: 0.5rem; }
+    /* Table styling: ensure full-width tables with consistent padding. */
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid #dee2e6; }
+    th { background-color: #f2f2f2; font-weight: bold; }
+    tr:nth-child(even) td { background-color: #f9f9f9; }
+    .text-end { text-align: right; }
+    .btn { display: inline-block; padding: 0.3rem 0.75rem; border: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
+    .btn-primary { background-color: #c2185b; color: #fff; }
+    .btn-secondary { background-color: #6c757d; color: #fff; }
+    .btn-danger { background-color: #dc3545; color: #fff; }
+    .btn-sm { font-size: 0.8rem; padding: 0.2rem 0.6rem; }
+    .form-control { padding: 0.4rem 0.6rem; border: 1px solid #ced4da; border-radius: 4px; width: 100%; }
+    .btn-outline-success { border: 2px solid #198754; color: #198754; background: transparent; border-radius: 4px; padding: 0.3rem 0.7rem; }
+    .btn-outline-success:hover { background-color: #198754; color: #fff; }
+    .d-flex { display: flex; }
+    .me-2 { margin-right: 0.5rem; }
+    .text-end { text-align: right; }
     '''
     # Determine navigation links based on login state.  We omit the
     # registration link unless there are no users yet; see users_exist() below.
