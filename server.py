@@ -84,6 +84,26 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
             );
         ''')
+
+        # Create tasks table for managing to‑dos per customer.  Each task
+        # records a title, an optional description, an optional due date and
+        # a status (open/completed).  Tasks are linked to both the customer
+        # they belong to and the user who created them.  Cascade deletes
+        # ensure tasks are removed when their customer or creator is deleted.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                due_date DATE,
+                status TEXT NOT NULL DEFAULT 'open',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                customer_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
         conn.commit()
 
 
@@ -459,6 +479,93 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(302)
             self.send_header('Location', f'/customers/view?id={cid_int}')
             self.end_headers()
+        # Task management routes
+        elif path == '/tasks/add':
+            # Add a new task for a customer.  Requires logged in user.  Expects
+            # POST data with title, optional description and due_date and query
+            # parameter customer_id specifying the customer.  After adding the
+            # task, redirect back to the customer detail page.
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            cid = query_params.get('customer_id', [None])[0]
+            if cid is None:
+                self.respond_not_found()
+                return
+            try:
+                cid_int = int(cid)
+            except ValueError:
+                self.respond_not_found()
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                due_date = params.get('due_date', [''])[0].strip()
+                if not title:
+                    # Re-render customer page with error message
+                    customer = self.get_customer(cid_int)
+                    self.render_customer_detail(customer, user_id, username,
+                                                task_error='Titel is verplicht.')
+                    return
+                with sqlite3.connect(DB_PATH) as conn:
+                    cur = conn.cursor()
+                    cur.execute('''INSERT INTO tasks (title, description, due_date, customer_id, user_id) VALUES (?, ?, ?, ?, ?)''',
+                                (title, description or None, due_date or None, cid_int, user_id))
+                    conn.commit()
+                self.send_response(302)
+                self.send_header('Location', f'/customers/view?id={cid_int}')
+                self.end_headers()
+            else:
+                self.respond_not_found()
+        elif path == '/tasks/complete':
+            # Mark a task as completed.
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            tid = query_params.get('id', [None])[0]
+            cid = query_params.get('customer_id', [None])[0]
+            if not tid or not cid:
+                self.respond_not_found()
+                return
+            try:
+                tid_int = int(tid)
+                cid_int = int(cid)
+            except ValueError:
+                self.respond_not_found()
+                return
+            with sqlite3.connect(DB_PATH) as conn:
+                cur = conn.cursor()
+                cur.execute('UPDATE tasks SET status = ? WHERE id = ?', ('completed', tid_int))
+                conn.commit()
+            self.send_response(302)
+            self.send_header('Location', f'/customers/view?id={cid_int}')
+            self.end_headers()
+        elif path == '/tasks/delete':
+            # Delete a task
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            tid = query_params.get('id', [None])[0]
+            cid = query_params.get('customer_id', [None])[0]
+            if not tid or not cid:
+                self.respond_not_found()
+                return
+            try:
+                tid_int = int(tid)
+                cid_int = int(cid)
+            except ValueError:
+                self.respond_not_found()
+                return
+            with sqlite3.connect(DB_PATH) as conn:
+                cur = conn.cursor()
+                cur.execute('DELETE FROM tasks WHERE id = ?', (tid_int,))
+                conn.commit()
+            self.send_response(302)
+            self.send_header('Location', f'/customers/view?id={cid_int}')
+            self.end_headers()
         else:
             self.respond_not_found()
 
@@ -687,11 +794,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
 
-    def render_customer_detail(self, customer: Dict[str, Any], user_id: int, username: str) -> None:
-        # Fetch notes
+    def render_customer_detail(self, customer: Dict[str, Any], user_id: int, username: str, task_error: str | None = None) -> None:
+        """Render the detail view for a single customer, including notes and tasks."""
+        # Fetch notes and tasks for this customer
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
+            # Notes
             cur.execute('''
                 SELECT notes.id AS note_id, notes.content, notes.created_at, users.username AS author
                 FROM notes
@@ -700,8 +809,18 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 ORDER BY notes.created_at DESC
             ''', (customer['id'],))
             notes = cur.fetchall()
+            # Tasks
+            cur.execute('''
+                SELECT tasks.id AS task_id, tasks.title, tasks.description, tasks.due_date, tasks.status, tasks.created_at, users.username AS author
+                FROM tasks
+                JOIN users ON tasks.user_id = users.id
+                WHERE tasks.customer_id = ?
+                ORDER BY CASE tasks.status WHEN 'open' THEN 0 ELSE 1 END, COALESCE(tasks.due_date, '') ASC, tasks.created_at ASC
+            ''', (customer['id'],))
+            tasks = cur.fetchall()
         logged_in, _, _ = self.parse_session()
         body = html_header(f'Klant: {customer["name"]}', logged_in, username)
+        # Customer header and details
         body += f'''
         <div class="d-flex justify-content-between align-items-center mt-4">
             <h2>{html.escape(customer['name'])}</h2>
@@ -721,6 +840,56 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         </div>
         <hr>
         <div class="mt-4">
+            <h5>Taken</h5>
+        '''
+        # Task error message if present
+        if task_error:
+            body += f'<div class="alert alert-danger">{html.escape(task_error)}</div>'
+        # Task form
+        body += f'''
+            <form method="post" action="/tasks/add?customer_id={customer['id']}" class="mb-3">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                        <label for="title" class="form-label">Titel</label>
+                        <input type="text" class="form-control" id="title" name="title" placeholder="Taak titel" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="due_date" class="form-label">Vervaldatum</label>
+                        <input type="date" class="form-control" id="due_date" name="due_date">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="description" class="form-label">Beschrijving</label>
+                        <input type="text" class="form-control" id="description" name="description" placeholder="Optioneel">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-2">Taak toevoegen</button>
+            </form>
+        '''
+        # Tasks list
+        body += '<ul class="list-group">'
+        if tasks:
+            for task in tasks:
+                status_badge = 'badge bg-success' if task['status'] == 'completed' else 'badge bg-warning text-dark'
+                status_label = 'Voltooid' if task['status'] == 'completed' else 'Open'
+                due = task['due_date'] or '-'
+                description = f"<br><small class='text-muted'>{html.escape(task['description'])}</small>" if task['description'] else ''
+                # Actions: complete (if open) and delete
+                actions = []
+                if task['status'] == 'open':
+                    actions.append(f"<a href='/tasks/complete?id={task['task_id']}&customer_id={customer['id']}' class='btn btn-sm btn-link'>Markeer voltooid</a>")
+                actions.append(f"<a href='/tasks/delete?id={task['task_id']}&customer_id={customer['id']}' class='btn btn-sm btn-link text-danger' onclick=\"return confirm('Weet je zeker dat je deze taak wilt verwijderen?');\">Verwijder</a>")
+                action_html = ' | '.join(actions)
+                body += f'''<li class="list-group-item">
+                    <span class="{status_badge}">{status_label}</span>
+                    <strong class="ms-2">{html.escape(task['title'])}</strong> (Vervaldatum: {html.escape(due)}){description}
+                    <small class="text-muted d-block">Aangemaakt op {task['created_at']} door {html.escape(task['author'])}</small>
+                    <div class="float-end">{action_html}</div>
+                </li>'''
+        else:
+            body += '<li class="list-group-item">Er zijn nog geen taken.</li>'
+        body += '</ul></div>'
+        # Notes section
+        body += '''<hr><div class="mt-4">
             <h5>Notities</h5>
             <form method="post" class="mb-3">
                 <div class="mb-3">
@@ -729,13 +898,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 </div>
                 <button type="submit" class="btn btn-primary">Opslaan</button>
             </form>
-            <ul class="list-group">
-        '''
+            <ul class="list-group">'''
         if notes:
             for note in notes:
                 body += f'''<li class="list-group-item">
                     {html.escape(note['content'])}
-                    <small class="text-muted d-block">{note['created_at']} {f'door {html.escape(note["author"])}' if note['author'] else ''}</small>
+                    <small class="text-muted d-block">{note['created_at']} {f'door {html.escape(note['author'])}' if note['author'] else ''}</small>
                     <a href="/notes/delete?id={note['note_id']}&customer_id={customer['id']}" class="btn btn-sm btn-link text-danger float-end" onclick="return confirm('Weet je zeker dat je deze notitie wilt verwijderen?');">Verwijder</a>
                 </li>'''
         else:
