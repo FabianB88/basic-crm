@@ -42,6 +42,27 @@ DB_PATH = os.path.join(os.path.dirname(__file__), 'crm.db')
 # In‑memory session store: maps session_id -> user_id
 sessions: Dict[str, int] = {}
 
+# ---------------------------------------------------------------------------
+# User/administration helpers
+# ---------------------------------------------------------------------------
+def users_exist() -> bool:
+    """Return True if at least one user record exists in the database."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.cursor()
+        cur.execute('SELECT COUNT(*) FROM users')
+        return cur.fetchone()[0] > 0
+
+
+def is_admin(user_id: int) -> bool:
+    """Simple admin check: treat the very first user (id=1) as the admin.
+
+    This function can be extended to support a proper role system (e.g.,
+    storing a role column in the users table).  For now we assume the
+    account created first is the administrator and is allowed to add new
+    users.
+    """
+    return user_id == 1
+
 
 def init_db() -> None:
     """Initialize the SQLite database if it doesn't already exist."""
@@ -169,46 +190,63 @@ def verify_user(identifier: str, password: str) -> Optional[Dict[str, Any]]:
 
 
 def html_header(title: str, logged_in: bool, username: str | None = None) -> str:
-    """Return the HTML header and navigation bar."""
+    """Return the HTML header and navigation bar.
+
+    The header contains a simple responsive navigation bar and embeds a small
+    stylesheet to provide a modern look without relying on external CSS
+    frameworks.  The color palette is inspired by the provided mobile app
+    screenshot (pink/magenta accents).
+    """
+    # Inline CSS: provides a light background, coloured header bar and basic
+    # card styles.  Avoid external dependencies by including everything in
+    # the page.  Feel free to customise these values to better match your
+    # preferred palette.
+    styles = '''
+    body { margin: 0; font-family: Arial, sans-serif; background-color: #f8f9fa; padding-top: 56px; }
+    .navbar { background-color: #c2185b; color: #fff; position: fixed; top: 0; width: 100%; height: 56px; display: flex; align-items: center; padding: 0 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 1000; }
+    .navbar a { color: #fff; text-decoration: none; margin-right: 1rem; }
+    .navbar .spacer { flex-grow: 1; }
+    .container { max-width: 960px; margin: 0 auto; padding: 1rem; }
+    .card { background-color: #ffffff; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .section-title { font-size: 1.2rem; font-weight: bold; margin-bottom: 0.5rem; }
+    .action-buttons a { display: inline-block; border: 2px solid #c2185b; border-radius: 24px; padding: 0.3rem 0.8rem; color: #c2185b; text-decoration: none; margin-right: 0.5rem; font-size: 0.9rem; }
+    .action-buttons a:hover { background-color: #c2185b; color: #fff; }
+    .icon { margin-right: 0.5rem; }
+    '''
+    # Determine navigation links based on login state.  We omit the
+    # registration link unless there are no users yet; see users_exist() below.
+    if logged_in:
+        nav_links_left = '<a href="/dashboard">Dashboard</a><a href="/customers">Klanten</a>'
+        nav_links_right = f'<span>Ingelogd als {html.escape(username)}</span> <a href="/logout">Uitloggen</a>'
+    else:
+        nav_links_left = ''
+        nav_links_right = '<a href="/login">Inloggen</a>'
     return f'''<!doctype html>
 <html lang="nl">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{html.escape(title)}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"
-          integrity="sha384-wnN4ghJ6U9JbYe6bcXfkwf4TDTI4ivEoKk0PHvJ/lAW/ML7yF6PKmzpF8fOhoqf9" crossorigin="anonymous">
-    <style>body {{ padding-top: 60px; }}</style>
+    <style>{styles}</style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="/">CRM</a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
-            aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarNav">
-      <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        {f'<li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li><li class="nav-item"><a class="nav-link" href="/customers">Klanten</a></li>' if logged_in else ''}
-      </ul>
-      <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-        {f'<li class="nav-item"><span class="navbar-text me-2">Ingelogd als {html.escape(username)}</span></li><li class="nav-item"><a class="nav-link" href="/logout">Uitloggen</a></li>' if logged_in else '<li class="nav-item"><a class="nav-link" href="/login">Inloggen</a></li><li class="nav-item"><a class="nav-link" href="/register">Registreren</a></li>'}
-      </ul>
-    </div>
-  </div>
+<nav class="navbar">
+    <a href="/">CRM</a>
+    <div class="spacer"></div>
+    {nav_links_left}
+    <div class="spacer"></div>
+    {nav_links_right}
 </nav>
 <div class="container">
 '''
 
 
 def html_footer() -> str:
-    """Return the HTML footer."""
-    return '''</div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
-        integrity="sha384-86xU3v3VN4Wv45/Vs8+1wC8BQpLHVfDymo5FgkwiaHZFf61LNR0OsoxlkCK2Crdb" crossorigin="anonymous"></script>
-</body>
-</html>'''
+    """Return the HTML footer.  Simply closes the container and page.
+
+    External scripts are omitted because all styling is embedded inline.
+    """
+    return '</div></body></html>'
 
 
 def redirect(location: str) -> bytes:
@@ -253,9 +291,17 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.respond_redirect('/login')
         elif path == '/register':
-            if logged_in:
-                self.respond_redirect('/dashboard')
-                return
+            # Registration is restricted.  If there is already at least one
+            # user in the database, only an authenticated admin can create
+            # additional accounts.  Otherwise (no users yet), allow the
+            # first account to be created publicly.
+            if users_exist():
+                if not logged_in or not is_admin(user_id):
+                    # Deny access to non‑admin users
+                    self.respond_redirect('/login')
+                    return
+            # At this point, either there are no users yet (initial setup)
+            # or the requester is an admin.  Proceed with registration.
             if method == 'POST':
                 length = int(self.headers.get('Content-Length', 0))
                 data = self.rfile.read(length).decode('utf-8')
@@ -268,7 +314,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     return
                 success, msg = create_user(username_f, email_f, password_f)
                 if success:
-                    self.render_login(info=msg)
+                    # After admin creates a user, redirect back to dashboard
+                    if logged_in:
+                        self.respond_redirect('/dashboard')
+                    else:
+                        self.render_login(info=msg)
                 else:
                     self.render_register(error=msg)
             else:
@@ -644,9 +694,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 <input type="password" class="form-control" id="password" name="password" required>
             </div>
             <button type="submit" class="btn btn-primary">Inloggen</button>
-            <p class="mt-3">Geen account? <a href="/register">Registreren</a></p>
         </form>
         '''
+        # Only show a registration hint if there are no users yet.  This
+        # allows the first account to be created while preventing
+        # self‑service registration once the system is initialised.
+        if not users_exist():
+            body += '<p class="mt-3">Geen account? <a href="/register">Registreren</a></p>'
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -834,95 +888,93 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             tasks = cur.fetchall()
         logged_in, _, _ = self.parse_session()
         body = html_header(f'Klant: {customer["name"]}', logged_in, username)
-        # Customer header and details
-        body += f'''
-        <div class="d-flex justify-content-between align-items-center mt-4">
-            <h2>{html.escape(customer['name'])}</h2>
-            <div>
-                <a href="/customers/edit?id={customer['id']}" class="btn btn-secondary">Bewerk</a>
-                <a href="/customers/delete?id={customer['id']}" class="btn btn-danger" onclick="return confirm('Weet je zeker dat je deze klant wilt verwijderen?');">Verwijder</a>
-            </div>
-        </div>
-        <div class="mt-3">
-            <h5>Contactgegevens</h5>
-            <p><strong>Naam:</strong> {html.escape(customer['name'])}</p>
-            <p><strong>E‑mail:</strong> {html.escape(customer['email'])}</p>
-            {f'<p><strong>Telefoon:</strong> {html.escape(customer["phone"])} </p>' if customer['phone'] else ''}
-            {f'<p><strong>Adres:</strong> {html.escape(customer["address"])} </p>' if customer['address'] else ''}
-            {f'<p><strong>Bedrijf:</strong> {html.escape(customer["company"])} </p>' if customer['company'] else ''}
-            <p><strong>Aangemaakt op:</strong> {customer['created_at']}</p>
-        </div>
-        <hr>
-        <div class="mt-4">
-            <h5>Taken</h5>
-        '''
-        # Task error message if present
-        if task_error:
-            body += f'<div class="alert alert-danger">{html.escape(task_error)}</div>'
-        # Task form
-        body += f'''
-            <form method="post" action="/tasks/add?customer_id={customer['id']}" class="mb-3">
-                <div class="row g-2 align-items-end">
-                    <div class="col-md-4">
-                        <label for="title" class="form-label">Titel</label>
-                        <input type="text" class="form-control" id="title" name="title" placeholder="Taak titel" required>
-                    </div>
-                    <div class="col-md-4">
-                        <label for="due_date" class="form-label">Vervaldatum</label>
-                        <input type="date" class="form-control" id="due_date" name="due_date">
-                    </div>
-                    <div class="col-md-4">
-                        <label for="description" class="form-label">Beschrijving</label>
-                        <input type="text" class="form-control" id="description" name="description" placeholder="Optioneel">
-                    </div>
+        # ----- Profile card -----
+        actions_html = []
+        # Provide call and email links only if data is present
+        if customer['phone']:
+            actions_html.append(f"<a href='tel:{html.escape(customer['phone'])}'><span class='icon'>&#128222;</span>Bel</a>")
+        actions_html.append(f"<a href='mailto:{html.escape(customer['email'])}'><span class='icon'>&#9993;</span>Email</a>")
+        # The message action is a placeholder; adapt as needed
+        actions_html.append(f"<a href='mailto:{html.escape(customer['email'])}'><span class='icon'>&#128172;</span>Bericht</a>")
+        actions_block = ' '.join(actions_html)
+        body += f'''<div class="card">
+            <div style="display:flex; justify-content: space-between; align-items:center;">
+                <div>
+                    <h2>{html.escape(customer['name'])}</h2>
+                    {f'<p>{html.escape(customer["company"])}<br><small>{html.escape(customer["address"] or "")}</small></p>' if customer.get('company') or customer.get('address') else ''}
                 </div>
-                <button type="submit" class="btn btn-primary mt-2">Taak toevoegen</button>
-            </form>
-        '''
-        # Tasks list
-        body += '<ul class="list-group">'
+                <div>
+                    <a href="/customers/edit?id={customer['id']}" class="action-buttons" style="margin-right:0.5rem;">Bewerk</a>
+                    <a href="/customers/delete?id={customer['id']}" class="action-buttons" onclick="return confirm('Weet je zeker dat je deze klant wilt verwijderen?');">Verwijder</a>
+                </div>
+            </div>
+            <div class="action-buttons" style="margin-top:0.5rem;">{actions_block}</div>
+        </div>'''
+        # ----- Contact details card -----
+        body += f'''<div class="card">
+            <div class="section-title">Contactgegevens</div>
+            <p><span class="icon">&#9993;</span>{html.escape(customer['email'])}</p>
+            {f'<p><span class="icon">&#128222;</span>{html.escape(customer["phone"])} </p>' if customer['phone'] else ''}
+            {f'<p><span class="icon">&#127968;</span>{html.escape(customer["address"])} </p>' if customer['address'] else ''}
+            {f'<p><span class="icon">&#128188;</span>{html.escape(customer["company"])} </p>' if customer['company'] else ''}
+            <p><span class="icon">&#128197;</span>Aangemaakt op {customer['created_at']}</p>
+        </div>'''
+        # ----- Tasks card -----
+        # Show task error if present
+        tasks_section = ''
+        if task_error:
+            tasks_section += f'<div class="alert alert-danger">{html.escape(task_error)}</div>'
+        # Task form
+        tasks_section += f'''<form method="post" action="/tasks/add?customer_id={customer['id']}" style="margin-bottom:1rem;">
+            <label>Titel<br><input type="text" name="title" required style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
+            <label>Vervaldatum<br><input type="date" name="due_date" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
+            <label>Beschrijving<br><input type="text" name="description" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
+            <button type="submit" style="background-color:#c2185b; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Taak toevoegen</button>
+        </form>'''
+        # Task list
         if tasks:
             for task in tasks:
-                status_badge = 'badge bg-success' if task['status'] == 'completed' else 'badge bg-warning text-dark'
                 status_label = 'Voltooid' if task['status'] == 'completed' else 'Open'
+                status_color = '#388e3c' if task['status'] == 'completed' else '#fbc02d'
                 due = task['due_date'] or '-'
-                description = f"<br><small class='text-muted'>{html.escape(task['description'])}</small>" if task['description'] else ''
-                # Actions: complete (if open) and delete
+                description = f"<br><small>{html.escape(task['description'])}</small>" if task['description'] else ''
                 actions = []
                 if task['status'] == 'open':
-                    actions.append(f"<a href='/tasks/complete?id={task['task_id']}&customer_id={customer['id']}' class='btn btn-sm btn-link'>Markeer voltooid</a>")
-                actions.append(f"<a href='/tasks/delete?id={task['task_id']}&customer_id={customer['id']}' class='btn btn-sm btn-link text-danger' onclick=\"return confirm('Weet je zeker dat je deze taak wilt verwijderen?');\">Verwijder</a>")
+                    actions.append(f"<a href='/tasks/complete?id={task['task_id']}&customer_id={customer['id']}' style='color:#388e3c;'>Markeer voltooid</a>")
+                actions.append(f"<a href='/tasks/delete?id={task['task_id']}&customer_id={customer['id']}' style='color:#c2185b;' onclick=\"return confirm('Weet je zeker dat je deze taak wilt verwijderen?');\">Verwijder</a>")
                 action_html = ' | '.join(actions)
-                body += f'''<li class="list-group-item">
-                    <span class="{status_badge}">{status_label}</span>
-                    <strong class="ms-2">{html.escape(task['title'])}</strong> (Vervaldatum: {html.escape(due)}){description}
-                    <small class="text-muted d-block">Aangemaakt op {task['created_at']} door {html.escape(task['author'])}</small>
-                    <div class="float-end">{action_html}</div>
-                </li>'''
+                tasks_section += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0;">
+                    <span style="color:{status_color}; font-weight:bold;">{status_label}</span>
+                    <strong style="margin-left:0.5rem;">{html.escape(task['title'])}</strong> (Vervaldatum: {html.escape(due)}){description}
+                    <div style="font-size:0.8rem; color:#666;">Aangemaakt op {task['created_at']} door {html.escape(task['author'])}</div>
+                    <div style="font-size:0.8rem;">{action_html}</div>
+                </div>'''
         else:
-            body += '<li class="list-group-item">Er zijn nog geen taken.</li>'
-        body += '</ul></div>'
-        # Notes section
-        body += '''<hr><div class="mt-4">
-            <h5>Notities</h5>
-            <form method="post" class="mb-3">
-                <div class="mb-3">
-                    <label for="content" class="form-label">Nieuwe notitie</label>
-                    <textarea class="form-control" id="content" name="content" rows="3" placeholder="Schrijf hier een notitie..." required></textarea>
-                </div>
-                <button type="submit" class="btn btn-primary">Opslaan</button>
-            </form>
-            <ul class="list-group">'''
+            tasks_section += '<p>Er zijn nog geen taken.</p>'
+        body += f'''<div class="card">
+            <div class="section-title">Taken</div>
+            {tasks_section}
+        </div>'''
+        # ----- Notes card -----
+        notes_section = ''
+        notes_section += f'''<form method="post" style="margin-bottom:1rem;">
+            <label>Nieuwe notitie<br><textarea name="content" rows="3" required style="width:100%; padding:0.4rem;"></textarea></label><br>
+            <button type="submit" style="background-color:#c2185b; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Opslaan</button>
+        </form>'''
         if notes:
             for note in notes:
-                body += f'''<li class="list-group-item">
+                author_part = f"door {html.escape(note['author'])}" if note['author'] else ''
+                notes_section += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0;">
                     {html.escape(note['content'])}
-                    <small class="text-muted d-block">{note['created_at']} {f'door {html.escape(note['author'])}' if note['author'] else ''}</small>
-                    <a href="/notes/delete?id={note['note_id']}&customer_id={customer['id']}" class="btn btn-sm btn-link text-danger float-end" onclick="return confirm('Weet je zeker dat je deze notitie wilt verwijderen?');">Verwijder</a>
-                </li>'''
+                    <div style="font-size:0.8rem; color:#666;">{note['created_at']} {author_part}</div>
+                    <div style="font-size:0.8rem;"><a href='/notes/delete?id={note['note_id']}&customer_id={customer['id']}' style='color:#c2185b;' onclick="return confirm('Weet je zeker dat je deze notitie wilt verwijderen?');">Verwijder</a></div>
+                </div>'''
         else:
-            body += '<li class="list-group-item">Er zijn nog geen notities.</li>'
-        body += '</ul></div>'
+            notes_section += '<p>Er zijn nog geen notities.</p>'
+        body += f'''<div class="card">
+            <div class="section-title">Notities</div>
+            {notes_section}
+        </div>'''
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
