@@ -920,9 +920,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             if search:
+                # Build a LIKE pattern for filtering by name, email, company or tags
                 like = f'%{search}%'
-                cur.execute('''SELECT * FROM customers WHERE name LIKE ? OR email LIKE ? OR company LIKE ? ORDER BY name ASC''',
-                            (like, like, like))
+                cur.execute('''SELECT * FROM customers
+                               WHERE name LIKE ? OR email LIKE ? OR company LIKE ? OR tags LIKE ?
+                               ORDER BY name ASC''',
+                            (like, like, like, like))
             else:
                 cur.execute('SELECT * FROM customers ORDER BY name ASC')
             customers = cur.fetchall()
@@ -995,41 +998,53 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         company = customer['company'] if customer else ''
         tags = customer['tags'] if customer else ''
         action = '/customers/edit?id={}'.format(customer['id']) if customer else '/customers/add'
+        # Wrap the form in a card for better visual separation.  The card uses
+        # Bootstrap classes but will also look clean when the custom inline
+        # stylesheet (in html_header) is used.  Fields are divided into two
+        # columns to mirror the mobile design from the provided screenshot.
         body += f'''
-        <form method="post" class="mt-3">
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="name" class="form-label">Naam</label>
-                        <input type="text" class="form-control" id="name" name="name" value="{html.escape(name)}" required>
+        <div class="card shadow-sm mt-4">
+            <div class="card-body">
+                <form method="post">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Naam</label>
+                                <input type="text" class="form-control" id="name" name="name" value="{html.escape(name)}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="email" class="form-label">E‑mail</label>
+                                <input type="email" class="form-control" id="email" name="email" value="{html.escape(email)}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="phone" class="form-label">Telefoon</label>
+                                <input type="text" class="form-control" id="phone" name="phone" value="{html.escape(phone or '')}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="address" class="form-label">Adres</label>
+                                <input type="text" class="form-control" id="address" name="address" value="{html.escape(address or '')}">
+                            </div>
+                            <div class="mb-3">
+                                <label for="company" class="form-label">Bedrijf</label>
+                                <input type="text" class="form-control" id="company" name="company" value="{html.escape(company or '')}">
+                            </div>
+                            <div class="mb-3">
+                                <label for="tags" class="form-label">Tags (gescheiden door komma)</label>
+                                <input type="text" class="form-control" id="tags" name="tags" value="{html.escape(tags or '')}">
+                            </div>
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label for="email" class="form-label">E‑mail</label>
-                        <input type="email" class="form-control" id="email" name="email" value="{html.escape(email)}" required>
+                    <div class="mt-3 d-flex justify-content-between">
+                        <div>
+                            <button type="submit" class="btn btn-primary">Opslaan</button>
+                            <a href="/customers" class="btn btn-link">Annuleren</a>
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label for="phone" class="form-label">Telefoon</label>
-                        <input type="text" class="form-control" id="phone" name="phone" value="{html.escape(phone or '')}">
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="address" class="form-label">Adres</label>
-                        <input type="text" class="form-control" id="address" name="address" value="{html.escape(address or '')}">
-                    </div>
-                    <div class="mb-3">
-                        <label for="company" class="form-label">Bedrijf</label>
-                        <input type="text" class="form-control" id="company" name="company" value="{html.escape(company or '')}">
-                    </div>
-                    <div class="mb-3">
-                        <label for="tags" class="form-label">Tags (gescheiden door komma)</label>
-                        <input type="text" class="form-control" id="tags" name="tags" value="{html.escape(tags or '')}">
-                    </div>
-                </div>
+                </form>
             </div>
-            <button type="submit" class="btn btn-primary">Opslaan</button>
-            <a href="/customers" class="btn btn-link">Annuleren</a>
-        </form>
+        </div>
         '''
         body += html_footer()
         self.send_response(200)
