@@ -92,8 +92,14 @@ def init_db() -> None:
                 address TEXT,
                 company TEXT,
                 tags TEXT,
+                -- Category indicates whether this record is a true client ('klant')
+                -- or part of the broader network ('netwerk').  Default is 'klant'.
+                category TEXT DEFAULT 'klant',
+                -- created_by stores the user ID of the account that added this customer.
+                created_by INTEGER,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
             );
         ''')
         # If an existing customers table lacks the tags column (e.g. from
@@ -102,6 +108,20 @@ def init_db() -> None:
             cur.execute('SELECT tags FROM customers LIMIT 1')
         except sqlite3.OperationalError:
             cur.execute('ALTER TABLE customers ADD COLUMN tags TEXT')
+
+        # Ensure the category column exists.  Older database versions may not
+        # include this column; add it with default 'klant' if missing.
+        try:
+            cur.execute('SELECT category FROM customers LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE customers ADD COLUMN category TEXT DEFAULT 'klant'")
+
+        # Ensure the created_by column exists.  It stores the user who added the
+        # customer.  If absent, add it as INTEGER.
+        try:
+            cur.execute('SELECT created_by FROM customers LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE customers ADD COLUMN created_by INTEGER')
         # Create notes table
         cur.execute('''
             CREATE TABLE IF NOT EXISTS notes (
@@ -436,7 +456,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 address = params.get('address', [''])[0].strip()
                 company = params.get('company', [''])[0].strip()
                 tags = params.get('tags', [''])[0].strip()
-                tags = params.get('tags', [''])[0].strip()
+                category = params.get('category', ['klant'])[0].strip() or 'klant'
                 if not name or not email_c:
                     self.render_customer_form(None, error='Naam en e‑mail zijn verplicht.')
                     return
@@ -446,8 +466,15 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     if cur.fetchone():
                         self.render_customer_form(None, error='Er bestaat al een klant met dit e‑mailadres.')
                         return
-                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags) VALUES (?, ?, ?, ?, ?, ?)''',
-                                (name, email_c, phone or None, address or None, company or None, tags or None))
+                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                                (name,
+                                 email_c,
+                                 phone or None,
+                                 address or None,
+                                 company or None,
+                                 tags or None,
+                                 category,
+                                 user_id))
                     conn.commit()
                 self.send_response(302)
                 self.send_header('Location', '/customers')
@@ -476,6 +503,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 phone = params.get('phone', [''])[0].strip()
                 address = params.get('address', [''])[0].strip()
                 company = params.get('company', [''])[0].strip()
+                tags = params.get('tags', [''])[0].strip()
+                category = params.get('category', ['klant'])[0].strip() or 'klant'
                 if not name or not email_c:
                     customer = self.get_customer(cid_int)
                     self.render_customer_form(customer, error='Naam en e‑mail zijn verplicht.')
@@ -488,8 +517,24 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         customer = self.get_customer(cid_int)
                         self.render_customer_form(customer, error='Er bestaat al een andere klant met dit e‑mailadres.')
                         return
-                    cur.execute('''UPDATE customers SET name=?, email=?, phone=?, address=?, company=?, tags=?, updated_at=CURRENT_TIMESTAMP WHERE id = ?''',
-                                (name, email_c, phone or None, address or None, company or None, tags or None, cid_int))
+                    cur.execute('''UPDATE customers
+                                    SET name=?,
+                                        email=?,
+                                        phone=?,
+                                        address=?,
+                                        company=?,
+                                        tags=?,
+                                        category=?,
+                                        updated_at=CURRENT_TIMESTAMP
+                                    WHERE id = ?''',
+                                (name,
+                                 email_c,
+                                 phone or None,
+                                 address or None,
+                                 company or None,
+                                 tags or None,
+                                 category,
+                                 cid_int))
                     conn.commit()
                 self.send_response(302)
                 self.send_header('Location', '/customers')
@@ -943,30 +988,55 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 </form>
             </div>
             <div class="col-md-6 text-end">
-                <a href="/customers/add" class="btn btn-primary">Klant toevoegen</a>
+                <a href="/customers/add" class="btn btn-primary">Klant/Netwerk toevoegen</a>
             </div>
         </div>
         <table class="table table-striped table-hover mt-3">
-            <thead><tr><th>Naam</th><th>Bedrijf</th><th>Tags</th><th>E‑mail</th><th>Telefoon</th><th class="text-end">Acties</th></tr></thead>
+            <thead>
+                <tr>
+                    <th>Naam</th>
+                    <th>Bedrijf</th>
+                    <th>Type</th>
+                    <th>Tags</th>
+                    <th>E‑mail</th>
+                    <th>Telefoon</th>
+                    <th>Toegevoegd door</th>
+                    <th class="text-end">Acties</th>
+                </tr>
+            </thead>
             <tbody>
         '''
         if customers:
             for cust in customers:
                 # Format tags as comma separated list or dash if none
                 tags_display = ', '.join([html.escape(tag.strip()) for tag in (cust['tags'] or '').split(',')]) if cust['tags'] else '-'
+                # Determine category (klant/netwerk) and capitalise first letter
+                category_display = (cust['category'] or 'klant').capitalize() if 'category' in cust.keys() else 'Klant'
+                # Determine creator username
+                creator = '-'  # default if no user
+                try:
+                    if cust['created_by']:
+                        u = get_user_by_id(cust['created_by'])
+                        if u:
+                            creator = html.escape(u['username'])
+                except Exception:
+                    creator = '-'
                 body += f'''<tr>
                     <td><a href="/customers/view?id={cust['id']}">{html.escape(cust['name'])}</a></td>
                     <td>{html.escape(cust['company'] or '-')}</td>
+                    <td>{category_display}</td>
                     <td>{tags_display}</td>
                     <td>{html.escape(cust['email'])}</td>
                     <td>{html.escape(cust['phone'] or '-')}</td>
+                    <td>{creator}</td>
                     <td class="text-end">
                         <a href="/customers/edit?id={cust['id']}" class="btn btn-sm btn-secondary">Bewerk</a>
                         <a href="/customers/delete?id={cust['id']}" class="btn btn-sm btn-danger" onclick="return confirm('Weet je zeker dat je deze klant wilt verwijderen?');">Verwijder</a>
                     </td>
                 </tr>'''
         else:
-            body += '<tr><td colspan="5" class="text-center">Geen klanten gevonden.</td></tr>'
+            # Adjust colspan to match the number of columns in the table
+            body += '<tr><td colspan="8" class="text-center">Geen klanten gevonden.</td></tr>'
         body += '</tbody></table>'
         body += html_footer()
         self.send_response(200)
@@ -997,6 +1067,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         address = customer['address'] if customer else ''
         company = customer['company'] if customer else ''
         tags = customer['tags'] if customer else ''
+        category = customer['category'] if customer else 'klant'
         action = '/customers/edit?id={}'.format(customer['id']) if customer else '/customers/add'
         # Wrap the form in a card for better visual separation.  The card uses
         # Bootstrap classes but will also look clean when the custom inline
@@ -1033,6 +1104,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                             <div class="mb-3">
                                 <label for="tags" class="form-label">Tags (gescheiden door komma)</label>
                                 <input type="text" class="form-control" id="tags" name="tags" value="{html.escape(tags or '')}">
+                            </div>
+                            <div class="mb-3">
+                                <label for="category" class="form-label">Type</label>
+                                <select class="form-select" id="category" name="category">
+                                    <option value="klant" {'selected' if category == 'klant' else ''}>Klant</option>
+                                    <option value="netwerk" {'selected' if category == 'netwerk' else ''}>Netwerk</option>
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -1113,6 +1191,16 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         tags_html = ''
         if customer.get('tags'):
             tags_html = '<p><span class="icon">&#128279;</span>' + ', '.join([html.escape(tag.strip()) for tag in customer['tags'].split(',')]) + '</p>'
+        # Determine creator and category for display
+        creator_name = '-'
+        try:
+            if customer.get('created_by'):
+                creator_user = get_user_by_id(customer['created_by'])
+                if creator_user:
+                    creator_name = html.escape(creator_user['username'])
+        except Exception:
+            creator_name = '-'
+        category_display = (customer.get('category') or 'klant').capitalize()
         body += f'''<div class="card">
             <div class="section-title">Contactgegevens</div>
             <p><span class="icon">&#9993;</span>{html.escape(customer['email'])}</p>
@@ -1120,6 +1208,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             {f'<p><span class="icon">&#127968;</span>{html.escape(customer["address"])} </p>' if customer['address'] else ''}
             {f'<p><span class="icon">&#128188;</span>{html.escape(customer["company"])} </p>' if customer['company'] else ''}
             {tags_html}
+            <p><span class="icon">&#128221;</span>Type: {category_display}</p>
+            <p><span class="icon">&#128100;</span>Toegevoegd door: {creator_name}</p>
             <p><span class="icon">&#128197;</span>Aangemaakt op {customer['created_at']}</p>
         </div>'''
         # ----- Tasks card -----
