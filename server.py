@@ -37,7 +37,22 @@ import os
 HOST = '0.0.0.0'
 # Use the PORT environment variable if provided (e.g. by hosting platforms like Render).
 PORT = int(os.environ.get('PORT', '8000'))
-DB_PATH = os.path.join(os.path.dirname(__file__), 'crm.db')
+# Path to the SQLite database file.
+#
+# We attempt to use a persistent disk mount if it exists. When deploying
+# on Render with a persistent disk, set the disk's mount path to
+# '/var/data' (or another absolute path) and Render will mount your disk
+# there. If that directory exists, we store our database in it so that
+# data persists across deploys. Otherwise we fall back to the script
+# directory.
+PERSISTENT_DIR = '/var/data'
+if os.path.isdir(PERSISTENT_DIR):
+    # Ensure the directory exists (Render creates it automatically when a disk is attached)
+    # but create it locally if running without a disk.
+    os.makedirs(PERSISTENT_DIR, exist_ok=True)
+    DB_PATH = os.path.join(PERSISTENT_DIR, 'crm.db')
+else:
+    DB_PATH = os.path.join(os.path.dirname(__file__), 'crm.db')
 
 # In‑memory session store: maps session_id -> user_id
 sessions: Dict[str, int] = {}
