@@ -58,6 +58,30 @@ else:
 sessions: Dict[str, int] = {}
 
 # ---------------------------------------------------------------------------
+# Audit logging
+# ---------------------------------------------------------------------------
+def log_action(user_id: Optional[int], action: str, table: str, row_id: Optional[int], details: str = '') -> None:
+    """Record an audit log entry.
+
+    Args:
+        user_id: The ID of the user performing the action (may be None for
+            unauthenticated actions).
+        action: A short string describing the action (e.g. 'create', 'update',
+            'delete').
+        table: The name of the table being modified (customers, tasks, notes,
+            interactions).
+        row_id: The primary key of the affected row (if applicable).
+        details: Optional textual description of what changed.
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO audit_logs (user_id, action, table_name, row_id, details) VALUES (?, ?, ?, ?, ?)',
+            (user_id, action, table, row_id, details)
+        )
+        conn.commit()
+
+# ---------------------------------------------------------------------------
 # User/administration helpers
 # ---------------------------------------------------------------------------
 def users_exist() -> bool:
@@ -112,6 +136,9 @@ def init_db() -> None:
                 category TEXT DEFAULT 'klant',
                 -- created_by stores the user ID of the account that added this customer.
                 created_by INTEGER,
+                -- custom_fields stores a JSON object with arbitrary key/value pairs
+                -- for additional attributes (e.g. LinkedIn URL, birthday, interests).
+                custom_fields TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
@@ -137,6 +164,14 @@ def init_db() -> None:
             cur.execute('SELECT created_by FROM customers LIMIT 1')
         except sqlite3.OperationalError:
             cur.execute('ALTER TABLE customers ADD COLUMN created_by INTEGER')
+
+        # Ensure the custom_fields column exists.  It stores a JSON string of
+        # arbitrary fields for a customer.  Older databases may not have
+        # this column; add it if missing.
+        try:
+            cur.execute('SELECT custom_fields FROM customers LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE customers ADD COLUMN custom_fields TEXT')
         # Create notes table
         cur.execute('''
             CREATE TABLE IF NOT EXISTS notes (
@@ -185,6 +220,35 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         ''')
+
+        # Create audit_logs table for tracking changes.  Each log entry
+        # includes the user performing the action, the type of action (add, edit,
+        # delete), the target table, the affected row ID and optional details.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                action TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                row_id INTEGER,
+                details TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+            );
+        ''')
+
+        # Create customer_fields table to hold dynamic field definitions.  Each
+        # entry has a unique name (internal key) and a label (display name).
+        # Admins can manage these fields via the /fields interface.  Values
+        # for these fields are stored per customer in the custom_fields JSON.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS customer_fields (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL
+            );
+        ''')
+
         conn.commit()
 
 
@@ -208,6 +272,20 @@ def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
         cur.execute('SELECT * FROM users WHERE id = ?', (user_id,))
         row = cur.fetchone()
         return dict(row) if row else None
+
+
+def get_custom_field_definitions() -> List[sqlite3.Row]:
+    """Return a list of dynamic customer field definitions.
+
+    Each definition has `id`, `name` and `label` columns.  Admins can
+    add or remove these definitions via the /fields page.  The order is
+    determined by the `id` column (insertion order).
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM customer_fields ORDER BY id ASC')
+        return cur.fetchall()
 
 
 def create_user(username: str, email: str, password: str) -> Tuple[bool, str]:
@@ -306,6 +384,9 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
             uid_int = None
         if uid_int is not None and is_admin(uid_int):
             nav_links.append("<a href='/users'>Gebruikers</a>")
+            nav_links.append("<a href='/fields'>Velden</a>")
+            nav_links.append("<a href='/reports'>Rapporten</a>")
+            nav_links.append("<a href='/audit'>Audit logs</a>")
         nav_links_left = ''.join(nav_links)
         nav_links_right = f"<span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
     else:
@@ -494,6 +575,34 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 company = params.get('company', [''])[0].strip()
                 tags = params.get('tags', [''])[0].strip()
                 category = params.get('category', ['klant'])[0].strip() or 'klant'
+                # Collect dynamic field values.  Dynamic field inputs use the
+                # prefix 'cf_' followed by the field name.  Additionally, the
+                # raw custom_fields textarea (if present) allows JSON or
+                # key=value pairs to be specified.  We merge both sources.
+                import json
+                raw_custom = params.get('custom_fields', [''])[0].strip()
+                custom_dict: Dict[str, Any] = {}
+                # Merge values from dynamic fields definitions
+                try:
+                    for field_def in get_custom_field_definitions():
+                        key = field_def['name']
+                        val = params.get(f'cf_{key}', [''])[0].strip()
+                        if val:
+                            custom_dict[key] = val
+                except Exception:
+                    pass
+                # Merge any raw custom fields.  Accept JSON or key=value per line.
+                if raw_custom:
+                    try:
+                        data = json.loads(raw_custom)
+                        if isinstance(data, dict):
+                            custom_dict.update({str(k): str(v) for k, v in data.items()})
+                    except Exception:
+                        for line in raw_custom.splitlines():
+                            if '=' in line:
+                                k, v = line.split('=', 1)
+                                custom_dict[k.strip()] = v.strip()
+                custom_fields = json.dumps(custom_dict) if custom_dict else None
                 if not name or not email_c:
                     self.render_customer_form(None, error='Naam en e‑mail zijn verplicht.')
                     return
@@ -503,7 +612,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     if cur.fetchone():
                         self.render_customer_form(None, error='Er bestaat al een klant met dit e‑mailadres.')
                         return
-                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, created_by, custom_fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                                 (name,
                                  email_c,
                                  phone or None,
@@ -511,8 +620,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                  company or None,
                                  tags or None,
                                  category,
-                                 user_id))
+                                 user_id,
+                                 custom_fields))
+                    cid_new = cur.lastrowid
                     conn.commit()
+                # Log the creation
+                log_action(user_id, 'create', 'customers', cid_new, f"name={name}")
                 self.send_response(302)
                 self.send_header('Location', '/customers')
                 self.end_headers()
@@ -542,6 +655,31 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 company = params.get('company', [''])[0].strip()
                 tags = params.get('tags', [''])[0].strip()
                 category = params.get('category', ['klant'])[0].strip() or 'klant'
+                # Parse dynamic and raw custom fields.  Merge into a dict and
+                # encode as JSON for storage.  Supports JSON or key=value lines
+                # for raw custom_fields textarea.
+                import json
+                raw_custom = params.get('custom_fields', [''])[0].strip()
+                custom_dict: Dict[str, Any] = {}
+                try:
+                    for field_def in get_custom_field_definitions():
+                        key = field_def['name']
+                        val = params.get(f'cf_{key}', [''])[0].strip()
+                        if val:
+                            custom_dict[key] = val
+                except Exception:
+                    pass
+                if raw_custom:
+                    try:
+                        data = json.loads(raw_custom)
+                        if isinstance(data, dict):
+                            custom_dict.update({str(k): str(v) for k, v in data.items()})
+                    except Exception:
+                        for line in raw_custom.splitlines():
+                            if '=' in line:
+                                k, v = line.split('=', 1)
+                                custom_dict[k.strip()] = v.strip()
+                custom_fields = json.dumps(custom_dict) if custom_dict else None
                 if not name or not email_c:
                     customer = self.get_customer(cid_int)
                     self.render_customer_form(customer, error='Naam en e‑mail zijn verplicht.')
@@ -562,6 +700,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                         company=?,
                                         tags=?,
                                         category=?,
+                                        custom_fields=?,
                                         updated_at=CURRENT_TIMESTAMP
                                     WHERE id = ?''',
                                 (name,
@@ -571,8 +710,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                  company or None,
                                  tags or None,
                                  category,
+                                 custom_fields,
                                  cid_int))
                     conn.commit()
+                # Log the update
+                log_action(user_id, 'update', 'customers', cid_int, f"name={name}")
                 self.send_response(302)
                 self.send_header('Location', '/customers')
                 self.end_headers()
@@ -601,6 +743,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 cur.execute('DELETE FROM notes WHERE customer_id = ?', (cid_int,))
                 cur.execute('DELETE FROM customers WHERE id = ?', (cid_int,))
                 conn.commit()
+            # Log deletion
+            log_action(user_id, 'delete', 'customers', cid_int)
             self.send_response(302)
             self.send_header('Location', '/customers')
             self.end_headers()
@@ -628,7 +772,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         cur = conn.cursor()
                         cur.execute('''INSERT INTO notes (content, customer_id, user_id) VALUES (?, ?, ?)''',
                                     (content, cid_int, user_id))
+                        note_id = cur.lastrowid
                         conn.commit()
+                    # Log note creation
+                    log_action(user_id, 'create', 'notes', note_id)
                 self.send_response(302)
                 self.send_header('Location', f'/customers/view?id={cid_int}')
                 self.end_headers()
@@ -657,6 +804,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 cur = conn.cursor()
                 cur.execute('DELETE FROM notes WHERE id = ?', (nid_int,))
                 conn.commit()
+            # Log note deletion
+            log_action(user_id, 'delete', 'notes', nid_int)
             self.send_response(302)
             self.send_header('Location', f'/customers/view?id={cid_int}')
             self.end_headers()
@@ -695,7 +844,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     cur = conn.cursor()
                     cur.execute('''INSERT INTO tasks (title, description, due_date, customer_id, user_id) VALUES (?, ?, ?, ?, ?)''',
                                 (title, description or None, due_date or None, cid_int, user_id))
+                    task_id = cur.lastrowid
                     conn.commit()
+                # Log the task creation
+                log_action(user_id, 'create', 'tasks', task_id, f"title={title}")
                 self.send_response(302)
                 self.send_header('Location', f'/customers/view?id={cid_int}')
                 self.end_headers()
@@ -721,6 +873,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 cur = conn.cursor()
                 cur.execute('UPDATE tasks SET status = ? WHERE id = ?', ('completed', tid_int))
                 conn.commit()
+            # Log completion
+            log_action(user_id, 'update', 'tasks', tid_int, 'status=completed')
             self.send_response(302)
             self.send_header('Location', f'/customers/view?id={cid_int}')
             self.end_headers()
@@ -744,6 +898,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 cur = conn.cursor()
                 cur.execute('DELETE FROM tasks WHERE id = ?', (tid_int,))
                 conn.commit()
+            # Log deletion
+            log_action(user_id, 'delete', 'tasks', tid_int)
             self.send_response(302)
             self.send_header('Location', f'/customers/view?id={cid_int}')
             self.end_headers()
@@ -778,10 +934,50 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     cur = conn.cursor()
                     cur.execute('''INSERT INTO interactions (interaction_type, note, customer_id, user_id) VALUES (?, ?, ?, ?)''',
                                 (interaction_type, note or None, cid_int, user_id))
+                    inter_id = cur.lastrowid
                     conn.commit()
+                # Log new interaction
+                log_action(user_id, 'create', 'interactions', inter_id, f"type={interaction_type}")
                 self.send_response(302)
                 self.send_header('Location', f'/customers/view?id={cid_int}')
                 self.end_headers()
+        elif path == '/export':
+            # Export customers to CSV.  Only admin can download the export.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            # Prepare CSV using csv module to ensure proper escaping
+            import csv, io
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute('SELECT c.*, u.username AS creator_name FROM customers c LEFT JOIN users u ON c.created_by = u.id ORDER BY c.id ASC')
+                rows = cur.fetchall()
+            header = ['id','name','email','phone','address','company','tags','category','created_by','creator_name','custom_fields','created_at','updated_at']
+            output_io = io.StringIO()
+            writer = csv.writer(output_io)
+            writer.writerow(header)
+            for r in rows:
+                writer.writerow([r[h] if r[h] is not None else '' for h in header])
+            content = output_io.getvalue().encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/csv; charset=utf-8')
+            self.send_header('Content-Disposition', 'attachment; filename="customers_export.csv"')
+            self.send_header('Content-Length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        elif path == '/audit':
+            # Display audit logs.  Only admin can view.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            # Fetch logs
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute('''SELECT a.*, u.username FROM audit_logs a LEFT JOIN users u ON a.user_id = u.id ORDER BY a.created_at DESC LIMIT 200''')
+                logs = cur.fetchall()
+            self.render_audit_logs(logs, username)
         elif path == '/users':
             # List all users.  Only admin can view this page.  Non-admins are redirected.
             if not logged_in or not is_admin(user_id):
@@ -816,6 +1012,153 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.render_user_form(error=msg, logged_in=True, username=username)
             else:
                 self.render_user_form(logged_in=True, username=username)
+        elif path == '/fields':
+            # List and manage dynamic customer fields.  Admins only.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            # Show list of custom field definitions and add form
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute('SELECT * FROM customer_fields ORDER BY id ASC')
+                fields = cur.fetchall()
+            self.render_fields_list(fields, username)
+        elif path == '/fields/delete':
+            # Delete a field definition by id.  Only admin.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            fid = query_params.get('id', [None])[0]
+            try:
+                fid_int = int(fid) if fid else None
+            except Exception:
+                fid_int = None
+            if fid_int:
+                with sqlite3.connect(DB_PATH) as conn:
+                    cur = conn.cursor()
+                    cur.execute('DELETE FROM customer_fields WHERE id = ?', (fid_int,))
+                    conn.commit()
+                # Log deletion of field (table name customer_fields, row_id)
+                log_action(user_id, 'delete', 'customer_fields', fid_int)
+            self.respond_redirect('/fields')
+        elif path == '/import':
+            # CSV import page.  Only admin can import customers.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'GET':
+                # Show file upload form
+                self.render_import_form(username)
+            else:
+                # Process uploaded CSV file
+                ctype = self.headers.get('Content-Type', '')
+                if 'multipart/form-data' not in ctype:
+                    self.render_import_form(username, error='Ongeldig formulier.')
+                    return
+                # Parse multipart; use cgi module to handle file upload
+                import cgi
+                env = {'REQUEST_METHOD': 'POST', 'CONTENT_TYPE': ctype}
+                fs = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ=env)
+                fileitem = fs['file'] if 'file' in fs else None
+                if not fileitem or not fileitem.file:
+                    self.render_import_form(username, error='Selecteer een CSV‑bestand om te importeren.')
+                    return
+                # Read CSV content
+                data_bytes = fileitem.file.read()
+                import csv, io, json
+                reader = csv.DictReader(io.StringIO(data_bytes.decode('utf-8')))
+                imported = 0
+                errors = []
+                for row in reader:
+                    # Required fields: name, email
+                    name = (row.get('name') or '').strip()
+                    email_val = (row.get('email') or '').strip()
+                    if not name or not email_val:
+                        errors.append(f"Overgeslagen record zonder naam of e‑mail: {row}")
+                        continue
+                    phone = (row.get('phone') or '').strip() or None
+                    address = (row.get('address') or '').strip() or None
+                    company = (row.get('company') or '').strip() or None
+                    tags = (row.get('tags') or '').strip() or None
+                    category = (row.get('category') or 'klant').strip() or 'klant'
+                    custom = (row.get('custom_fields') or '').strip() or None
+                    # Insert into customers table; ignore duplicates on email
+                    with sqlite3.connect(DB_PATH) as conn:
+                        cur = conn.cursor()
+                        try:
+                            cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, created_by, custom_fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                                        (name, email_val, phone, address, company, tags, category, user_id, custom))
+                            cust_id = cur.lastrowid
+                            conn.commit()
+                            imported += 1
+                            # Log import creation
+                            log_action(user_id, 'create', 'customers', cust_id, f'import')
+                        except sqlite3.IntegrityError:
+                            errors.append(f"E‑mail al aanwezig: {email_val}")
+                            continue
+                # After processing all rows, show summary
+                self.render_import_result(username, imported, errors)
+        elif path == '/fields/add':
+            # Process new field creation.  Admin only.  Accepts POST with name and label.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                fname = params.get('name', [''])[0].strip()
+                flabel = params.get('label', [''])[0].strip()
+                if not fname or not flabel:
+                    # re-render with error
+                    with sqlite3.connect(DB_PATH) as conn:
+                        conn.row_factory = sqlite3.Row
+                        cur = conn.cursor()
+                        cur.execute('SELECT * FROM customer_fields ORDER BY id ASC')
+                        fields = cur.fetchall()
+                    self.render_fields_list(fields, username, error='Naam en label zijn verplicht.')
+                    return
+                # insert
+                with sqlite3.connect(DB_PATH) as conn:
+                    cur = conn.cursor()
+                    try:
+                        cur.execute('INSERT INTO customer_fields (name, label) VALUES (?, ?)', (fname, flabel))
+                        fid = cur.lastrowid
+                        conn.commit()
+                        # log action
+                        log_action(user_id, 'create', 'customer_fields', fid, f"name={fname}")
+                    except sqlite3.IntegrityError:
+                        # duplicate name
+                        with sqlite3.connect(DB_PATH) as conn2:
+                            conn2.row_factory = sqlite3.Row
+                            cur2 = conn2.cursor()
+                            cur2.execute('SELECT * FROM customer_fields ORDER BY id ASC')
+                            fields = cur2.fetchall()
+                        self.render_fields_list(fields, username, error='Naam bestaat al.')
+                        return
+                self.respond_redirect('/fields')
+            else:
+                self.respond_redirect('/fields')
+        elif path == '/reports':
+            # Display reports/dashboard for admin.  Only admin can view.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            # Fetch statistics: customers by category, tasks by status, interactions by type
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                # Customers by category
+                cur.execute('SELECT category, COUNT(*) AS count FROM customers GROUP BY category')
+                customer_stats = cur.fetchall()
+                # Tasks by status
+                cur.execute('SELECT status, COUNT(*) AS count FROM tasks GROUP BY status')
+                task_stats = cur.fetchall()
+                # Interactions by type
+                cur.execute('SELECT interaction_type, COUNT(*) AS count FROM interactions GROUP BY interaction_type')
+                interaction_stats = cur.fetchall()
+            self.render_reports(username, customer_stats, task_stats, interaction_stats)
         else:
             self.respond_not_found()
 
@@ -894,12 +1237,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body.encode('utf-8'))
 
     def render_dashboard(self, user_id: int, username: str) -> None:
-        # Count customers and get recent notes
+        # Count customers, get recent notes and tasks due soon
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute('SELECT COUNT(*) FROM customers')
             total_customers = cur.fetchone()[0]
+            # Recent notes
             cur.execute('''
                 SELECT notes.id AS note_id, notes.content, notes.created_at, customers.name AS customer_name
                 FROM notes
@@ -908,12 +1252,38 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 LIMIT 5
             ''')
             notes = cur.fetchall()
+            # Tasks due within next 7 days for this user and still open
+            cur.execute('''
+                SELECT tasks.id AS task_id, tasks.title, tasks.due_date, customers.name AS customer_name
+                FROM tasks
+                JOIN customers ON tasks.customer_id = customers.id
+                WHERE tasks.user_id = ?
+                  AND tasks.status = 'open'
+                  AND tasks.due_date IS NOT NULL
+                  AND DATE(tasks.due_date) <= DATE('now', '+7 day')
+                  AND DATE(tasks.due_date) >= DATE('now')
+                ORDER BY tasks.due_date ASC
+                LIMIT 5
+            ''', (user_id,))
+            due_tasks = cur.fetchall()
         body = html_header('Dashboard', True, username, user_id)
         body += '<h2 class="mt-4">Dashboard</h2>'
         # Summary card
         body += f'''<div class="card">
             <div class="section-title">Overzicht</div>
             <p>Totaal aantal klanten: <strong>{total_customers}</strong></p>
+        </div>'''
+        # Tasks due soon section
+        tasks_html = ''
+        if due_tasks:
+            for t in due_tasks:
+                date_str = t['due_date'] if t['due_date'] else ''
+                tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'><strong>{html.escape(t['title'])}</strong> - {html.escape(t['customer_name'])}<br><small>Vervaldatum: {date_str}</small></div>"
+        else:
+            tasks_html = '<p>Geen taken die binnenkort vervallen.</p>'
+        body += f'''<div class="card">
+            <div class="section-title">Taken komende 7 dagen</div>
+            {tasks_html}
         </div>'''
         # Recent notes
         notes_section = ''
@@ -991,6 +1361,127 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             <button type="submit" class="btn btn-primary">Gebruiker toevoegen</button>
             <a href="/users" class="btn btn-link">Annuleren</a>
         </form>'''
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_fields_list(self, fields: List[sqlite3.Row], username: str, error: str | None = None) -> None:
+        """Render the list of dynamic customer fields and a form to add new ones."""
+        # Determine current user id for nav bar; parse session
+        logged_in, uid, _ = self.parse_session()
+        body = html_header('Velden beheren', logged_in, username, uid)
+        body += '<h2 class="mt-4">Aanpasbare velden</h2>'
+        if error:
+            body += f'<div class="alert alert-danger mt-2">{html.escape(error)}</div>'
+        # Show existing fields in a card
+        body += '<div class="card">'
+        body += '<div class="section-title">Huidige velden</div>'
+        if fields:
+            for f in fields:
+                fid = f['id']
+                label = html.escape(f['label'])
+                name = html.escape(f['name'])
+                body += f'<div style="border-bottom:1px solid #eee; padding:0.5rem 0;">'
+                body += f'<strong>{label}</strong> <small>({name})</small>'
+                body += f'<a href="/fields/delete?id={fid}" style="color:#c2185b; float:right;" onclick="return confirm(\'Weet je zeker dat je dit veld wilt verwijderen?\');">Verwijder</a>'
+                body += '</div>'
+        else:
+            body += '<p>Er zijn nog geen extra velden.</p>'
+        body += '</div>'
+        # Form to add new field
+        body += '<div class="card">'
+        body += '<div class="section-title">Nieuw veld toevoegen</div>'
+        body += '''<form method="post" action="/fields/add">
+                <div class="mb-3">
+                    <label for="name" class="form-label">Interne naam (alleen letters/cijfers, geen spaties)</label>
+                    <input type="text" class="form-control" id="name" name="name" required>
+                </div>
+                <div class="mb-3">
+                    <label for="label" class="form-label">Label (weergave)</label>
+                    <input type="text" class="form-control" id="label" name="label" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Veld toevoegen</button>
+            </form>'''
+        body += '</div>'
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_import_form(self, username: str, error: str | None = None) -> None:
+        """Render a form to upload a CSV file for import."""
+        logged_in, uid, _ = self.parse_session()
+        body = html_header('Importeren', logged_in, username, uid)
+        body += '<h2 class="mt-4">Klantgegevens importeren</h2>'
+        if error:
+            body += f'<div class="alert alert-danger mt-2">{html.escape(error)}</div>'
+        body += '''<div class="card">
+            <div class="section-title">CSV‑bestand uploaden</div>
+            <form method="post" action="/import" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <input type="file" name="file" accept=".csv" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Importeer</button>
+            </form>
+            <p class="mt-2"><small>Het CSV‑bestand moet kolomnamen bevatten: name, email, phone, address, company, tags, category, custom_fields.</small></p>
+        </div>'''
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_import_result(self, username: str, imported: int, errors: List[str]) -> None:
+        """Render the result page after importing customers."""
+        logged_in, uid, _ = self.parse_session()
+        body = html_header('Importresultaat', logged_in, username, uid)
+        body += '<h2 class="mt-4">Import resultaat</h2>'
+        body += f'<div class="card"><p>{imported} klanten geïmporteerd.</p>'
+        if errors:
+            body += '<div class="mt-3"><strong>Fouten:</strong><ul>'
+            for e in errors:
+                body += f'<li>{html.escape(e)}</li>'
+            body += '</ul></div>'
+        body += '</div>'
+        body += '<p class="mt-3"><a href="/customers" class="btn btn-primary">Terug naar klanten</a></p>'
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_reports(self, username: str, customer_stats: List[sqlite3.Row], task_stats: List[sqlite3.Row], interaction_stats: List[sqlite3.Row]) -> None:
+        """Render a simple reports dashboard with aggregated statistics."""
+        logged_in, uid, _ = self.parse_session()
+        body = html_header('Rapporten', logged_in, username, uid)
+        body += '<h2 class="mt-4">Rapporten</h2>'
+        # Helper to generate bar list
+        def build_bars(items, title):
+            # Determine max count for scaling
+            max_count = max([row['count'] for row in items], default=1)
+            html_sections = f'<div class="card"><div class="section-title">{title}</div>'
+            if items:
+                for row in items:
+                    label = html.escape(str(row[0]).capitalize())
+                    count = row['count']
+                    width = int((count / max_count) * 100)
+                    html_sections += f'''<div style="margin:0.3rem 0;">
+                        <strong>{label}</strong> ({count})
+                        <div style="background-color:#e9ecef; border-radius:4px; overflow:hidden; height:8px;">
+                            <div style="width:{width}%; background-color:#c2185b; height:100%;"></div>
+                        </div>
+                    </div>'''
+            else:
+                html_sections += '<p>Geen gegevens.</p>'
+            html_sections += '</div>'
+            return html_sections
+        # Build each card
+        body += build_bars(customer_stats, 'Klanten per type')
+        body += build_bars(task_stats, 'Taken per status')
+        body += build_bars(interaction_stats, 'Interacties per type')
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -1105,7 +1596,41 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         company = customer['company'] if customer else ''
         tags = customer['tags'] if customer else ''
         category = customer['category'] if customer else 'klant'
+        # Load custom fields (stored as JSON string) and present as a JSON
+        # representation in the form for editing.  If no custom fields
+        # exist, leave blank.  When saving, the raw text will be saved to
+        # the database as is (expects valid JSON or simple key=value lines).
+        # Prepare dynamic custom field values.  We parse the existing
+        # custom_fields JSON (if present) to prefill inputs for each defined
+        # custom field.  If parsing fails, we treat it as an empty dict.
+        raw_custom_fields = ''
+        existing_custom: Dict[str, Any] = {}
+        if customer and customer.get('custom_fields'):
+            try:
+                raw_custom_fields = customer['custom_fields']
+                import json
+                existing_custom = json.loads(customer['custom_fields']) if customer['custom_fields'] else {}
+                if not isinstance(existing_custom, dict):
+                    existing_custom = {}
+            except Exception:
+                raw_custom_fields = customer['custom_fields']
+                existing_custom = {}
         action = '/customers/edit?id={}'.format(customer['id']) if customer else '/customers/add'
+        # Build HTML for dynamic fields.  Each field definition creates
+        # its own input.  Values are prefilled from existing_custom.
+        dynamic_fields_html = ''
+        try:
+            for field_def in get_custom_field_definitions():
+                key = field_def['name']
+                label = field_def['label']
+                value = existing_custom.get(key, '')
+                dynamic_fields_html += f'''<div class="mb-3">
+                    <label for="cf_{html.escape(key)}" class="form-label">{html.escape(label)}</label>
+                    <input type="text" class="form-control" id="cf_{html.escape(key)}" name="cf_{html.escape(key)}" value="{html.escape(str(value))}">
+                </div>'''
+        except Exception:
+            dynamic_fields_html = ''
+
         # Wrap the form in a card for better visual separation.  The card uses
         # Bootstrap classes but will also look clean when the custom inline
         # stylesheet (in html_header) is used.  Fields are divided into two
@@ -1148,6 +1673,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                     <option value="klant" {'selected' if category == 'klant' else ''}>Klant</option>
                                     <option value="netwerk" {'selected' if category == 'netwerk' else ''}>Netwerk</option>
                                 </select>
+                            </div>
+                            {dynamic_fields_html}
+                            <div class="mb-3">
+                                <label for="custom_fields" class="form-label">Extra velden (JSON of key=value per regel)</label>
+                                <textarea class="form-control" id="custom_fields" name="custom_fields" rows="3">{html.escape(raw_custom_fields)}</textarea>
+                                <small class="form-text text-muted">Voer extra eigenschappen in als JSON (bijv. {{"linkedin": "http://...", "verjaardag": "2025-10-20"}}) of als key=value per regel.</small>
                             </div>
                         </div>
                     </div>
@@ -1211,6 +1742,24 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         # The message action is a placeholder; adapt as needed
         actions_html.append(f"<a href='mailto:{html.escape(customer['email'])}'><span class='icon'>&#128172;</span>Bericht</a>")
         actions_block = ' '.join(actions_html)
+        # Build custom fields HTML
+        custom_html = ''
+        try:
+            if customer.get('custom_fields'):
+                import json
+                # Attempt to parse JSON
+                data = json.loads(customer['custom_fields'])
+                if isinstance(data, dict):
+                    for key, value in data.items():
+                        custom_html += f"<p><span class='icon'>&#128196;</span>{html.escape(str(key).capitalize())}: {html.escape(str(value))}</p>"
+                else:
+                    # If not dict, just show raw
+                    custom_html = f"<p>{html.escape(str(data))}</p>"
+        except Exception:
+            # fall back to plain text
+            if customer.get('custom_fields'):
+                custom_html = f"<p>{html.escape(customer['custom_fields'])}</p>"
+
         body += f'''<div class="card">
             <div style="display:flex; justify-content: space-between; align-items:center;">
                 <div>
@@ -1248,6 +1797,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             <p><span class="icon">&#128221;</span>Type: {category_display}</p>
             <p><span class="icon">&#128100;</span>Toegevoegd door: {creator_name}</p>
             <p><span class="icon">&#128197;</span>Aangemaakt op {customer['created_at']}</p>
+            {custom_html}
         </div>'''
         # ----- Tasks card -----
         # Show task error if present
@@ -1342,6 +1892,31 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             <div class="section-title">Interacties</div>
             {interactions_section}
         </div>'''
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_audit_logs(self, logs: List[sqlite3.Row], username: str) -> None:
+        """Render a simple audit log list for admins.
+
+        Each entry shows who performed an action, what they did and when. Only the most recent
+        200 actions are displayed.
+        """
+        logged_in, _, _ = self.parse_session()
+        body = html_header('Audit logs', logged_in, username, 1)
+        body += '<h2 class="mt-4">Audit logs</h2>'
+        body += '<div class="card"><table><thead><tr>'
+        body += '<th>ID</th><th>Gebruiker</th><th>Actie</th><th>Tabel</th><th>Rij‑ID</th><th>Details</th><th>Tijdstip</th>'
+        body += '</tr></thead><tbody>'
+        if logs:
+            for log in logs:
+                user_display = html.escape(log['username']) if log['username'] else '-'
+                body += f"<tr><td>{log['id']}</td><td>{user_display}</td><td>{html.escape(log['action'])}</td><td>{html.escape(log['table_name'])}</td><td>{log['row_id'] if log['row_id'] is not None else ''}</td><td>{html.escape(log['details'] or '')}</td><td>{log['created_at']}</td></tr>"
+        else:
+            body += '<tr><td colspan="7">Geen logboeken gevonden.</td></tr>'
+        body += '</tbody></table></div>'
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
