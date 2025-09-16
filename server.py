@@ -30,6 +30,84 @@ import os
 import hashlib
 from typing import Tuple, Dict, Any, Optional, List
 
+# Additional imports for CSV/XLSX parsing in import feature
+import io
+import csv
+import re
+try:
+    import openpyxl  # voor .xlsx-bestanden
+except Exception:
+    openpyxl = None
+
+# Allowed base columns for import
+ALLOWED_BASE_COLS = {'name', 'email', 'phone', 'address', 'company', 'tags', 'category', 'custom_fields'}
+
+def _norm(s: str) -> str:
+    """Normalize cell values: return stripped string or empty string."""
+    return (s or '').strip()
+
+def parse_import_file(file_bytes: bytes, filename: str, dynamic_fields: List[str]) -> List[Dict[str, str]]:
+    """
+    Parse a CSV or XLSX file and return a list of row dictionaries.
+
+    Only columns in the whitelist (base columns plus dynamic fields prefixed with `cf_`)
+    are retained. Unknown columns are ignored. Rows missing required 'name' or 'email'
+    fields are skipped.
+
+    Args:
+        file_bytes: The raw bytes of the uploaded file.
+        filename: The name of the uploaded file (used to determine format).
+        dynamic_fields: A list of dynamic field names defined in the database.
+
+    Returns:
+        A list of dictionaries, each representing a customer row.
+
+    Raises:
+        RuntimeError: If an XLSX file is provided but the openpyxl module is unavailable.
+    """
+    # Build the case-insensitive whitelist
+    allowed = set(ALLOWED_BASE_COLS)
+    allowed |= {f"cf_{f.lower()}" for f in dynamic_fields}
+
+    # Determine file type and read rows
+    if filename.lower().endswith('.xlsx'):
+        if not openpyxl:
+            raise RuntimeError("Excel import vereist 'openpyxl' op de server.")
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+        ws = wb.active
+        records = list(ws.iter_rows(values_only=True))
+        if not records:
+            return []
+        headers = [str(h or '').strip() for h in records[0]]
+        data_rows = records[1:]
+    else:
+        text = file_bytes.decode('utf-8-sig', errors='replace')
+        reader = csv.reader(io.StringIO(text))
+        records = list(reader)
+        if not records:
+            return []
+        headers = [h.strip() for h in records[0]]
+        data_rows = records[1:]
+
+    # Normalize header names to lower-case
+    norm_headers = [h.lower().strip() for h in headers]
+    result: List[Dict[str, str]] = []
+    for row in data_rows:
+        rowmap: Dict[str, str] = {}
+        for idx, h in enumerate(norm_headers):
+            if idx >= len(row):
+                continue
+            if h in allowed:
+                cell = row[idx]
+                if cell is None:
+                    cell = ''
+                rowmap[h] = _norm(str(cell))
+        # Ensure required fields
+        if not rowmap.get('name') or not rowmap.get('email'):
+            continue
+        result.append(rowmap)
+    return result
+
 
 # Configuration constants
 import os
@@ -385,8 +463,9 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
         if uid_int is not None and is_admin(uid_int):
             nav_links.append("<a href='/users'>Gebruikers</a>")
             nav_links.append("<a href='/fields'>Velden</a>")
-                    nav_links.append("<a href='/reports'>Rapporten</a>")/a>/a>
-      nav_links.apend("<a href='/import'>Importeren</a>"
+            nav_links.append("<a href='/reports'>Rapporten</a>")
+        # Import link accessible to all logged-in users
+        nav_links.append("<a href='/import'>Importeren</a>")
         nav_links_left = ''.join(nav_links)
         nav_links_right = f"<span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
     else:
@@ -1043,61 +1122,84 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 log_action(user_id, 'delete', 'customer_fields', fid_int)
             self.respond_redirect('/fields')
         elif path == '/import':
-            # CSV import page.  Only admin can import customers.
-            if not logged_in or not is_admin(user_id):
-                self.respond_redirect('/dashboard')
+            # Import page: allow all logged-in users to import customers.
+            if not logged_in:
+                # Redirect unauthenticated users to login
+                self.respond_redirect('/login')
                 return
             if method == 'GET':
                 # Show file upload form
                 self.render_import_form(username)
             else:
-                # Process uploaded CSV file
+                # Process uploaded CSV or Excel file
                 ctype = self.headers.get('Content-Type', '')
                 if 'multipart/form-data' not in ctype:
                     self.render_import_form(username, error='Ongeldig formulier.')
                     return
-                # Parse multipart; use cgi module to handle file upload
                 import cgi
                 env = {'REQUEST_METHOD': 'POST', 'CONTENT_TYPE': ctype}
                 fs = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ=env)
                 fileitem = fs['file'] if 'file' in fs else None
                 if not fileitem or not fileitem.file:
-                    self.render_import_form(username, error='Selecteer een CSV‑bestand om te importeren.')
+                    self.render_import_form(username, error='Selecteer een bestand om te importeren.')
                     return
-                # Read CSV content
-                data_bytes = fileitem.file.read()
-                import csv, io, json
-                reader = csv.DictReader(io.StringIO(data_bytes.decode('utf-8')))
+                file_bytes = fileitem.file.read()
+                filename = fileitem.filename or 'upload.csv'
+                # Determine dynamic fields from the database
+                dyn_defs = get_custom_field_definitions()
+                dyn_names = [d['name'] for d in dyn_defs]
+                try:
+                    rows = parse_import_file(file_bytes, filename, dyn_names)
+                except Exception as e:
+                    self.render_import_form(username, error=f'Importfout: {e}')
+                    return
                 imported = 0
-                errors = []
-                for row in reader:
-                    # Required fields: name, email
-                    name = (row.get('name') or '').strip()
-                    email_val = (row.get('email') or '').strip()
-                    if not name or not email_val:
-                        errors.append(f"Overgeslagen record zonder naam of e‑mail: {row}")
-                        continue
-                    phone = (row.get('phone') or '').strip() or None
-                    address = (row.get('address') or '').strip() or None
-                    company = (row.get('company') or '').strip() or None
-                    tags = (row.get('tags') or '').strip() or None
-                    category = (row.get('category') or 'klant').strip() or 'klant'
-                    custom = (row.get('custom_fields') or '').strip() or None
-                    # Insert into customers table; ignore duplicates on email
-                    with sqlite3.connect(DB_PATH) as conn:
-                        cur = conn.cursor()
+                errors: List[str] = []
+                import json
+                with sqlite3.connect(DB_PATH) as conn:
+                    cur = conn.cursor()
+                    for row in rows:
+                        # Collect dynamic fields with 'cf_' prefix into JSON object
+                        custom_data: Dict[str, str] = {}
+                        for k in list(row.keys()):
+                            if k.startswith('cf_'):
+                                custom_data[k[3:]] = row.pop(k) or ''
+                        # Merge with any custom_fields column value (JSON or key=value lines)
+                        raw_custom = row.pop('custom_fields', '')
+                        if raw_custom:
+                            try:
+                                if raw_custom.strip().startswith('{'):
+                                    custom_data.update(json.loads(raw_custom))
+                                else:
+                                    for line in raw_custom.splitlines():
+                                        if '=' in line:
+                                            k2, v2 = line.split('=', 1)
+                                            custom_data[k2.strip()] = v2.strip()
+                            except Exception:
+                                pass
+                        name = row.get('name')
+                        email_val = row.get('email')
+                        phone = row.get('phone') or None
+                        address = row.get('address') or None
+                        company = row.get('company') or None
+                        tags_val = row.get('tags') or None
+                        category_val = row.get('category') or 'klant'
+                        if category_val:
+                            category_val = category_val.lower()
+                        else:
+                            category_val = 'klant'
                         try:
-                            cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, created_by, custom_fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                                        (name, email_val, phone, address, company, tags, category, user_id, custom))
+                            cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, created_by, custom_fields)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                                        (name, email_val, phone, address, company, tags_val, category_val, user_id,
+                                         json.dumps(custom_data) if custom_data else None))
                             cust_id = cur.lastrowid
                             conn.commit()
                             imported += 1
-                            # Log import creation
                             log_action(user_id, 'create', 'customers', cust_id, f'import')
                         except sqlite3.IntegrityError:
                             errors.append(f"E‑mail al aanwezig: {email_val}")
                             continue
-                # After processing all rows, show summary
                 self.render_import_result(username, imported, errors)
         elif path == '/fields/add':
             # Process new field creation.  Admin only.  Accepts POST with name and label.
@@ -1422,11 +1524,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             <div class="section-title">CSV‑bestand uploaden</div>
             <form method="post" action="/import" enctype="multipart/form-data">
                 <div class="mb-3">
-                    <input type="file" name="file" accept=".csv" required>
+                    <input type="file" name="file" accept=".csv,.xlsx" required>
                 </div>
                 <button type="submit" class="btn btn-primary">Importeer</button>
             </form>
-            <p class="mt-2"><small>Het CSV‑bestand moet kolomnamen bevatten: name, email, phone, address, company, tags, category, custom_fields.</small></p>
+            <p class="mt-2"><small>Het uploadbestand moet kolomnamen bevatten: name, email, phone, address, company, tags, category, custom_fields en eventuele dynamische velden (cf_...). Onbekende kolommen worden genegeerd.</small></p>
         </div>'''
         body += html_footer()
         self.send_response(200)
