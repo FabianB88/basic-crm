@@ -386,7 +386,9 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
             nav_links.append("<a href='/users'>Gebruikers</a>")
             nav_links.append("<a href='/fields'>Velden</a>")
             nav_links.append("<a href='/reports'>Rapporten</a>")
-            nav_links.append("<a href='/audit'>Audit logs</a>")
+            nav_links.append("<a 
+                    nav_links.append("<a href='/import'>Importeren</a>")
+hr
         nav_links_left = ''.join(nav_links)
         nav_links_right = f"<span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
     else:
