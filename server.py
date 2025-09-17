@@ -1254,25 +1254,26 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # Redirect unauthenticated users to login
                 self.respond_redirect('/login')
                 return
+            # Show upload form
             if method == 'GET':
-                # Show file upload form
                 self.render_import_form(username)
-            else:
-                # Process uploaded CSV or Excel file
-                ctype = self.headers.get('Content-Type', '')
+                return
+            # POST: handle uploaded file
+            # Wrap entire handler in a try/except so unexpected errors don't crash the server.
+            try:
+                ctype = self.headers.get('Content-Type', '') or ''
                 if 'multipart/form-data' not in ctype:
                     self.render_import_form(username, error='Ongeldig formulier.')
                     return
-                # Manual multipart parsing without relying on the deprecated cgi module
+                # Enforce max upload size (5 MB)
                 try:
                     content_length = int(self.headers.get('Content-Length', '0'))
                 except Exception:
                     content_length = 0
-                # Limit uploads to 5MB
                 if content_length > 5 * 1024 * 1024:
                     self.render_import_form(username, error='Bestand is te groot (max 5MB).')
                     return
-                # Read entire body
+                # Read request body
                 body = self.rfile.read(content_length)
                 # Extract boundary
                 try:
@@ -1280,41 +1281,68 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 except Exception:
                     self.render_import_form(username, error='Ongeldige multipart-indeling.')
                     return
-                files = self._parse_multipart(body, boundary)
-                if 'file' not in files or files['file'][1] is None:
+                # Parse multipart form data safely
+                try:
+                    files = self._parse_multipart(body, boundary)
+                except Exception:
+                    self.render_import_form(username, error='Fout bij het verwerken van het uploadformulier.')
+                    return
+                # Validate file field
+                file_tuple = files.get('file')
+                if not file_tuple or file_tuple[1] is None:
                     self.render_import_form(username, error='Selecteer een bestand om te importeren.')
                     return
-                filename, file_bytes = files['file']
+                filename, file_bytes = file_tuple
                 if not filename:
                     filename = 'upload.csv'
-                # Determine dynamic fields from the database
-                dyn_defs = get_custom_field_definitions()
-                dyn_names = [d['name'] for d in dyn_defs]
+                # Get dynamic field names from DB (may be empty)
+                try:
+                    dyn_defs = get_custom_field_definitions()
+                    dyn_names = [d['name'] for d in dyn_defs]
+                except Exception:
+                    dyn_names = []
+                # Parse the uploaded file (CSV or XLSX)
                 try:
                     rows = parse_import_file(file_bytes, filename, dyn_names)
                 except Exception as e:
                     self.render_import_form(username, error=f'Importfout: {e}')
                     return
+                # Insert rows into DB
                 imported = 0
                 errors: List[str] = []
-                import json
                 with sqlite3.connect(DB_PATH) as conn:
                     cur = conn.cursor()
                     for row in rows:
                         custom_json = row.pop('__custom_json', None)
                         try:
-                            cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, created_by, custom_fields)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                                        (row.get('name'), row.get('email'), row.get('phone'), row.get('address'),
-                                         row.get('company'), row.get('tags'), row.get('category'), user_id, custom_json))
+                            cur.execute(
+                                'INSERT INTO customers (name, email, phone, address, company, tags, category, created_by, custom_fields)\n                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                                (
+                                    row.get('name'),
+                                    row.get('email'),
+                                    row.get('phone'),
+                                    row.get('address'),
+                                    row.get('company'),
+                                    row.get('tags'),
+                                    row.get('category'),
+                                    user_id,
+                                    custom_json,
+                                ),
+                            )
                             cust_id = cur.lastrowid
                             conn.commit()
                             imported += 1
+                            # Audit log for each created customer
                             log_action(user_id, 'create', 'customers', cust_id, 'import')
                         except sqlite3.IntegrityError:
                             errors.append(f"E‑mail al aanwezig: {row.get('email')}")
                             continue
+                # Show result page
                 self.render_import_result(username, imported, errors)
+            except Exception as e:
+                # Catch any unexpected exception and display as error
+                self.render_import_form(username, error=f'Onbekende fout: {e}')
+                return
         elif path == '/fields/add':
             # Process new field creation.  Admin only.  Accepts POST with name and label.
             if not logged_in or not is_admin(user_id):
