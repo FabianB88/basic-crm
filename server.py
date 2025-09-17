@@ -602,6 +602,58 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                             return True, user['id'], user['username']
         return False, None, None
 
+    def _parse_multipart(self, body: bytes, boundary: str) -> Dict[str, Tuple[str, bytes]]:
+        """
+        Parse a multipart/form-data request body and return a mapping of form field names
+        to (filename, content) tuples. Only handles simple cases and assumes that each
+        part is delineated by the specified boundary. Trailing CRLF and boundary markers
+        are stripped from the content.
+
+        Args:
+            body: The raw request body bytes containing the multipart payload.
+            boundary: The boundary string specified in the Content-Type header (without
+                the leading --).
+
+        Returns:
+            A dictionary where keys are form field names and values are (filename, content)
+            pairs. The filename may be None if the part did not include a filename.
+        """
+        files: Dict[str, Tuple[str, bytes]] = {}
+        delim = ('--' + boundary).encode()
+        # Split the body by the boundary. Each valid part will be between boundary markers.
+        for part in body.split(delim):
+            # Skip empty segments and the closing marker
+            if not part or part in (b'--\r\n', b'--'):
+                continue
+            # Each part begins with CRLF
+            # Separate headers from content using double CRLF
+            if b'\r\n\r\n' not in part:
+                continue
+            header_block, content_block = part.split(b'\r\n\r\n', 1)
+            # Decode headers
+            header_lines = header_block.decode(errors='ignore').strip().split('\r\n')
+            name = None
+            filename = None
+            for line in header_lines:
+                if ':' not in line:
+                    continue
+                key, value = line.split(':', 1)
+                key = key.lower().strip()
+                value = value.strip()
+                if key == 'content-disposition':
+                    # Example: form-data; name="file"; filename="contacts.csv"
+                    for item in value.split(';'):
+                        item = item.strip()
+                        if item.startswith('name='):
+                            name = item.split('=', 1)[1].strip('"')
+                        elif item.startswith('filename='):
+                            filename = item.split('=', 1)[1].strip('"')
+            if name:
+                # Remove trailing CRLF and boundary markers from content
+                content = content_block.rstrip(b'\r\n--')
+                files[name] = (filename, content)
+        return files
+
     def handle_request(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -1211,15 +1263,30 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if 'multipart/form-data' not in ctype:
                     self.render_import_form(username, error='Ongeldig formulier.')
                     return
-                import cgi
-                env = {'REQUEST_METHOD': 'POST', 'CONTENT_TYPE': ctype}
-                fs = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ=env)
-                fileitem = fs['file'] if 'file' in fs else None
-                if not fileitem or not fileitem.file:
+                # Manual multipart parsing without relying on the deprecated cgi module
+                try:
+                    content_length = int(self.headers.get('Content-Length', '0'))
+                except Exception:
+                    content_length = 0
+                # Limit uploads to 5MB
+                if content_length > 5 * 1024 * 1024:
+                    self.render_import_form(username, error='Bestand is te groot (max 5MB).')
+                    return
+                # Read entire body
+                body = self.rfile.read(content_length)
+                # Extract boundary
+                try:
+                    boundary = ctype.split('boundary=')[1]
+                except Exception:
+                    self.render_import_form(username, error='Ongeldige multipart-indeling.')
+                    return
+                files = self._parse_multipart(body, boundary)
+                if 'file' not in files or files['file'][1] is None:
                     self.render_import_form(username, error='Selecteer een bestand om te importeren.')
                     return
-                file_bytes = fileitem.file.read()
-                filename = fileitem.filename or 'upload.csv'
+                filename, file_bytes = files['file']
+                if not filename:
+                    filename = 'upload.csv'
                 # Determine dynamic fields from the database
                 dyn_defs = get_custom_field_definitions()
                 dyn_names = [d['name'] for d in dyn_defs]
@@ -1234,46 +1301,18 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 with sqlite3.connect(DB_PATH) as conn:
                     cur = conn.cursor()
                     for row in rows:
-                        # Collect dynamic fields with 'cf_' prefix into JSON object
-                        custom_data: Dict[str, str] = {}
-                        for k in list(row.keys()):
-                            if k.startswith('cf_'):
-                                custom_data[k[3:]] = row.pop(k) or ''
-                        # Merge with any custom_fields column value (JSON or key=value lines)
-                        raw_custom = row.pop('custom_fields', '')
-                        if raw_custom:
-                            try:
-                                if raw_custom.strip().startswith('{'):
-                                    custom_data.update(json.loads(raw_custom))
-                                else:
-                                    for line in raw_custom.splitlines():
-                                        if '=' in line:
-                                            k2, v2 = line.split('=', 1)
-                                            custom_data[k2.strip()] = v2.strip()
-                            except Exception:
-                                pass
-                        name = row.get('name')
-                        email_val = row.get('email')
-                        phone = row.get('phone') or None
-                        address = row.get('address') or None
-                        company = row.get('company') or None
-                        tags_val = row.get('tags') or None
-                        category_val = row.get('category') or 'klant'
-                        if category_val:
-                            category_val = category_val.lower()
-                        else:
-                            category_val = 'klant'
+                        custom_json = row.pop('__custom_json', None)
                         try:
                             cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, created_by, custom_fields)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                                        (name, email_val, phone, address, company, tags_val, category_val, user_id,
-                                         json.dumps(custom_data) if custom_data else None))
+                                        (row.get('name'), row.get('email'), row.get('phone'), row.get('address'),
+                                         row.get('company'), row.get('tags'), row.get('category'), user_id, custom_json))
                             cust_id = cur.lastrowid
                             conn.commit()
                             imported += 1
-                            log_action(user_id, 'create', 'customers', cust_id, f'import')
+                            log_action(user_id, 'create', 'customers', cust_id, 'import')
                         except sqlite3.IntegrityError:
-                            errors.append(f"E‑mail al aanwezig: {email_val}")
+                            errors.append(f"E‑mail al aanwezig: {row.get('email')}")
                             continue
                 self.render_import_result(username, imported, errors)
         elif path == '/fields/add':
@@ -1596,14 +1635,14 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         if error:
             body += f'<div class="alert alert-danger mt-2">{html.escape(error)}</div>'
         body += '''<div class="card">
-            <div class="section-title">CSV‑bestand uploaden</div>
+            <div class="section-title">CSV/XLSX‑bestand uploaden</div>
             <form method="post" action="/import" enctype="multipart/form-data">
                 <div class="mb-3">
                     <input type="file" name="file" accept=".csv,.xlsx" required>
                 </div>
                 <button type="submit" class="btn btn-primary">Importeer</button>
             </form>
-            <p class="mt-2"><small>Het uploadbestand moet kolomnamen bevatten: name, email, phone, address, company, tags, category, custom_fields en eventuele dynamische velden (cf_...). Onbekende kolommen worden genegeerd.</small></p>
+            <p class="mt-2"><small>Het bestand moet kolomnamen bevatten. Zowel Nederlandse (Naam, Bedrijf, E‑mail, Telefoon, Adres, Tags, Type) als Engelse varianten (name, company, email, phone, address, tags, category) worden herkend. Voor dynamische velden gebruik cf_veldnaam. Onbekende kolommen worden genegeerd.</small></p>
         </div>'''
         body += html_footer()
         self.send_response(200)
