@@ -40,69 +40,144 @@ except Exception:
     openpyxl = None
 
 # Allowed base columns for import
-ALLOWED_BASE_COLS = {'name', 'email', 'phone', 'address', 'company', 'tags', 'category', 'custom_fields'}
+ALLOWED_BASE_COLS = {
+    'name', 'email', 'phone', 'address', 'company', 'tags', 'category', 'custom_fields'
+}
+
+# Mapping from common Dutch column names to internal English names (case-insensitive).
+HEADER_MAP_NL_EN = {
+    'naam': 'name',
+    'bedrijf': 'company',
+    'e-mail': 'email',
+    'email': 'email',
+    'mail': 'email',
+    'telefoon': 'phone',
+    'telefoonnr': 'phone',
+    'telefoonnummer': 'phone',
+    'mobiel': 'phone',
+    'adres': 'address',
+    'straat': 'address',
+    'tags': 'tags',
+    'label': 'tags',
+    'type': 'category',
+    'categorie': 'category',
+    'custom_fields': 'custom_fields',
+    'extra': 'custom_fields',
+}
 
 def _norm(s: str) -> str:
     """Normalize cell values: return stripped string or empty string."""
     return (s or '').strip()
 
+def _norm_key(s: str) -> str:
+    """Normalize header keys: lower-case, strip spaces/punctuation for matching."""
+    k = (s or '').strip().lower()
+    k = re.sub(r'\s+', ' ', k)
+    k = k.replace(':', '').replace(';', '').replace('#', '').replace('\u00ad', '')
+    return k
+
+def _map_header(h: str, dynamic_fields_lc: set[str]) -> Optional[str]:
+    """Map a raw header to its normalized internal name (English or cf_ dynamic)."""
+    h0 = _norm_key(h)
+    if h0 in HEADER_MAP_NL_EN:
+        return HEADER_MAP_NL_EN[h0]
+    if h0.startswith('cf_'):
+        fld = h0[3:]
+        # Only allow dynamic fields defined in DB
+        return f"cf_{fld}" if fld in dynamic_fields_lc else None
+    if h0 in ALLOWED_BASE_COLS:
+        return h0
+    return None
+
 def parse_import_file(file_bytes: bytes, filename: str, dynamic_fields: List[str]) -> List[Dict[str, str]]:
     """
-    Parse a CSV or XLSX file and return a list of row dictionaries.
-
-    Only columns in the whitelist (base columns plus dynamic fields prefixed with `cf_`)
-    are retained. Unknown columns are ignored. Rows missing required 'name' or 'email'
-    fields are skipped.
-
-    Args:
-        file_bytes: The raw bytes of the uploaded file.
-        filename: The name of the uploaded file (used to determine format).
-        dynamic_fields: A list of dynamic field names defined in the database.
-
-    Returns:
-        A list of dictionaries, each representing a customer row.
-
-    Raises:
-        RuntimeError: If an XLSX file is provided but the openpyxl module is unavailable.
+    Read a CSV or XLSX file and return a list of row dictionaries with only allowed columns.
+    - Unknown columns are ignored.
+    - Supports Dutch or English headers.
+    - Collects dynamic fields prefixed with cf_ into a JSON object later.
     """
-    # Build the case-insensitive whitelist
-    allowed = set(ALLOWED_BASE_COLS)
-    allowed |= {f"cf_{f.lower()}" for f in dynamic_fields}
+    # Lowercase dynamic field names for matching cf_ headers
+    dyn_lc = {d.lower().strip() for d in dynamic_fields}
 
-    # Determine file type and read rows
+    # Read headers and rows based on file type
     if filename.lower().endswith('.xlsx'):
         if not openpyxl:
-            raise RuntimeError("Excel import vereist 'openpyxl' op de server.")
+            raise RuntimeError("Excel-import vereist openpyxl op de server.")
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
         ws = wb.active
-        records = list(ws.iter_rows(values_only=True))
-        if not records:
+        iterator = ws.iter_rows(values_only=True)
+        try:
+            headers = [str(h or '').strip() for h in next(iterator)]
+        except StopIteration:
             return []
-        headers = [str(h or '').strip() for h in records[0]]
-        data_rows = records[1:]
+        rows = [list(r) for r in iterator]
     else:
+        # Attempt to auto-detect delimiter (comma or semicolon or tab)
         text = file_bytes.decode('utf-8-sig', errors='replace')
-        reader = csv.reader(io.StringIO(text))
-        records = list(reader)
-        if not records:
+        sample = text[:2048]
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=[',', ';', '\t'])
+            delim = dialect.delimiter
+        except Exception:
+            delim = ';' if sample.count(';') >= sample.count(',') else ','
+        reader = csv.reader(io.StringIO(text), delimiter=delim)
+        data = list(reader)
+        if not data:
             return []
-        headers = [h.strip() for h in records[0]]
-        data_rows = records[1:]
+        headers = [h.strip() for h in data[0]]
+        rows = data[1:]
 
-    # Normalize header names to lower-case
-    norm_headers = [h.lower().strip() for h in headers]
+    # Map headers to internal names; Unknown columns get None
+    mapped_headers = [_map_header(h, dyn_lc) for h in headers]
     result: List[Dict[str, str]] = []
-    for row in data_rows:
+
+    for r in rows:
         rowmap: Dict[str, str] = {}
-        for idx, h in enumerate(norm_headers):
-            if idx >= len(row):
+        # Collect allowed columns
+        for idx, mk in enumerate(mapped_headers):
+            if mk is None or idx >= len(r):
                 continue
-            if h in allowed:
-                cell = row[idx]
-                if cell is None:
-                    cell = ''
-                rowmap[h] = _norm(str(cell))
-        # Ensure required fields
+            val = r[idx]
+            if val is None:
+                continue
+            rowmap[mk] = _norm(str(val))
+        # Extract dynamic custom fields (cf_<name>)
+        custom_data: Dict[str, str] = {}
+        for k in list(rowmap.keys()):
+            if k.startswith('cf_'):
+                custom_data[k[3:]] = rowmap.pop(k)
+        # Merge custom_fields column if provided (can contain JSON or key=value lines)
+        raw_cf = rowmap.pop('custom_fields', '')
+        if raw_cf:
+            try:
+                import json
+                if raw_cf.strip().startswith('{'):
+                    custom_data.update(json.loads(raw_cf))
+                else:
+                    for line in raw_cf.splitlines():
+                        if '=' in line:
+                            k2, v2 = line.split('=', 1)
+                            custom_data[_norm(k2)] = _norm(v2)
+            except Exception:
+                pass
+        # Normalize category to 'klant' or 'netwerk'
+        cat = (rowmap.get('category') or '').lower()
+        if cat in ('klant', 'client', 'customer'):
+            rowmap['category'] = 'klant'
+        elif cat in ('netwerk', 'network', 'partner', 'relatie'):
+            rowmap['category'] = 'netwerk'
+        else:
+            rowmap['category'] = 'klant'
+        # Normalize tags: use comma as separator; unify semicolon if needed
+        tags_val = rowmap.get('tags')
+        if tags_val:
+            sep = ';' if tags_val.count(';') >= tags_val.count(',') else ','
+            rowmap['tags'] = ','.join([_norm(t) for t in tags_val.split(sep) if _norm(t)])
+        # Keep dynamic custom JSON under special key for insertion later
+        if custom_data:
+            import json
+            rowmap['__custom_json'] = json.dumps(custom_data)
+        # Skip rows missing required fields
         if not rowmap.get('name') or not rowmap.get('email'):
             continue
         result.append(rowmap)
