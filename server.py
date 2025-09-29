@@ -177,8 +177,9 @@ def parse_import_file(file_bytes: bytes, filename: str, dynamic_fields: List[str
         if custom_data:
             import json
             rowmap['__custom_json'] = json.dumps(custom_data)
-        # Skip rows missing required fields
-        if not rowmap.get('name') or not rowmap.get('email'):
+        # Skip rows missing both name and email; rows missing one of them are allowed.
+        # A missing name will be replaced with a placeholder during import.
+        if not rowmap.get('name') and not rowmap.get('email'):
             continue
         result.append(rowmap)
     return result
@@ -1313,12 +1314,28 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 with sqlite3.connect(DB_PATH) as conn:
                     cur = conn.cursor()
                     for row in rows:
+                        # Remove extracted JSON before insertion
                         custom_json = row.pop('__custom_json', None)
+                        # Determine a base name. If missing or empty, use a placeholder.
+                        raw_name = (row.get('name') or '').strip()
+                        base_name = raw_name if raw_name else 'Naam onbekend'
+                        # Ensure the name is unique by appending a number when necessary.
+                        final_name = base_name
+                        suffix = 1
+                        # Query existing customers for name collisions
+                        while True:
+                            cur.execute('SELECT COUNT(*) FROM customers WHERE name = ?', (final_name,))
+                            existing_count = cur.fetchone()[0]
+                            if existing_count == 0:
+                                break
+                            suffix += 1
+                            final_name = f"{base_name} {suffix}"
+                        # Prepare values for insertion
                         try:
                             cur.execute(
                                 'INSERT INTO customers (name, email, phone, address, company, tags, category, created_by, custom_fields)\n                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                                 (
-                                    row.get('name'),
+                                    final_name,
                                     row.get('email'),
                                     row.get('phone'),
                                     row.get('address'),
@@ -1335,6 +1352,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                             # Audit log for each created customer
                             log_action(user_id, 'create', 'customers', cust_id, 'import')
                         except sqlite3.IntegrityError:
+                            # Likely a unique constraint on email; record error and continue
                             errors.append(f"E‑mail al aanwezig: {row.get('email')}")
                             continue
                 # Show result page
