@@ -179,7 +179,7 @@ def parse_import_file(file_bytes: bytes, filename: str, dynamic_fields: List[str
             rowmap['__custom_json'] = json.dumps(custom_data)
         # Skip rows missing both name and email; rows missing one of them are allowed.
         # A missing name will be replaced with a placeholder during import.
-        if not rowmap.get('name') and not rowmap.get('email'):
+        if not rowmap.get('name') and not rowmap.get('email') and not rowmap.get('company'):
             continue
         result.append(rowmap)
     return result
@@ -1317,7 +1317,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         # Remove extracted JSON before insertion
                         custom_json = row.pop('__custom_json', None)
                         # Determine a base name. If missing or empty, use a placeholder.
-                        raw_name = (row.get('name') or '').strip()
+                        raw_name =  (row.get('name') or row.get('company') or '').strip()
                         base_name = raw_name if raw_name else 'Naam onbekend'
                         # Ensure the name is unique by appending a number when necessary.
                         final_name = base_name
