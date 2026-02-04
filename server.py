@@ -347,10 +347,12 @@ def init_db() -> None:
         cur.execute('''
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
+          
+               title TEXT NOT NULL,
                 description TEXT,
                 due_date DATE,
                 status TEXT NOT NULL DEFAULT 'open',
+               
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 customer_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
@@ -358,6 +360,12 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         ''')
+            # Add reminder_sent column to tasks table if missing (0 = not sent, 1 = sent)
+    try:
+            cur.execute("ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+                  pass
+
         # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
         # a type, an optional note and a timestamp.  Interactions are
@@ -371,9 +379,22 @@ def init_db() -> None:
                 customer_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+
             );
         ''')
+                # Create documents table for storing SharePoint links per customer.
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+        )
+    ''')
+
 
         # Create audit_logs table for tracking changes.  Each log entry
         # includes the user performing the action, the type of action (add, edit,
@@ -1317,7 +1338,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         # Remove extracted JSON before insertion
                         custom_json = row.pop('__custom_json', None)
                         # Determine a base name. If missing or empty, use a placeholder.
-                        raw_name =  (row.get('name') or row.get('company') or '').strip()
+                      raw_name = (row.get('name') or row.get('company') or '').strip()
                         base_name = raw_name if raw_name else 'Naam onbekend'
                         # Ensure the name is unique by appending a number when necessary.
                         final_name = base_name
