@@ -362,11 +362,14 @@ def init_db() -> None:
         ''')
             # Add reminder_sent column to tasks table if missing (0 = not sent, 1 = sent)
     try:
-            cur.execute("ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER DEFAULT 0")
+            
+                      
+      # Add reminder_sent column to tasks table if missing
+    try:
+                    cur.execute("ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
-                  pass
-
-        # Create interactions table.  This table records each interaction (e.g.
+        pass
+      # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
         # a type, an optional note and a timestamp.  Interactions are
         # optional and can be added through the customer detail page.
@@ -385,14 +388,14 @@ def init_db() -> None:
         ''')
                 # Create documents table for storing SharePoint links per customer.
     cur.execute('''
-        CREATE TABLE IF NOT EXISTS documents (
+                    CREATE TABLE IF NOT EXISTS documents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             url TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
-        )
+        );
     ''')
 
 
