@@ -40,8 +40,8 @@ except Exception:
     openpyxl = None
 
 # Allowed base columns for import
-ALLOWED_BASE_COLS = {
-    'name', 'email', 'phone', 'address', 'company', 'tags', 'category', 'custom_fields'
+ALLOWED_BASE_COLS = 
+    'name', 'email', 'phone', 'address', 'company', 'tags', 'category', 'custom_fields', 'website', 'industry', 'company_size', 'region'
 }
 
 # Mapping from common Dutch column names to internal English names (case-insensitive).
@@ -62,6 +62,10 @@ HEADER_MAP_NL_EN = {
     'type': 'category',
     'categorie': 'category',
     'custom_fields': 'custom_fields',
+        'website': 'website',
+    'branche': 'industry',
+    'grootte': 'company_size',
+    'regio': 'region',
     'extra': 'custom_fields',
 }
 
@@ -278,12 +282,19 @@ def init_db() -> None:
         # table already exists but the tags column is missing, add it.
         cur.execute('''
             CREATE TABLE IF NOT EXISTS customers (
+                    
+
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
                 phone TEXT,
                 address TEXT,
+                
                 company TEXT,
+                        website TEXT,
+        industry TEXT,
+        company_size TEXT,
+        region TEXT,
                 tags TEXT,
                 -- Category indicates whether this record is a true client ('klant')
                 -- or part of the broader network ('netwerk').  Default is 'klant'.
