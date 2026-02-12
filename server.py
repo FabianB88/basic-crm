@@ -372,7 +372,7 @@ def init_db() -> None:
             );
         ''')
             # Add reminder_sent column to tasks table if missing (0 = not sent, 1 = sent)
-    try:
+3    try:
             
                       
       # Add reminder_sent column to tasks table if missing
@@ -1893,6 +1893,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         company = customer['company'] if customer else ''
         tags = customer['tags'] if customer else ''
         category = customer['category'] if customer else 'klant'
+            website = customer.get('website', '') if customer else ''
+    industry = customer.get('industry', '') if customer else ''
+    company_size = customer.get('company_size', '') if customer else ''
+    region = customer.get('region', '') if customer else ''
         # Load custom fields (stored as JSON string) and present as a JSON
         # representation in the form for editing.  If no custom fields
         # exist, leave blank.  When saving, the raw text will be saved to
