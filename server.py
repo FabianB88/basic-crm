@@ -40,10 +40,9 @@ except Exception:
     openpyxl = None
 
 # Allowed base columns for import
-ALLOWED_BASE_COLS = 
-    'name', 'email', 'phone', 'address', 'company', 'tags', 'category', 'custom_fields', 'website', 'industry', 'company_size', 'region'
+ALLOWED_BASE_C {OLS = 
+{    'name', 'email', 'phone', 'address', 'company', 'tags', 'category', 'custom_fields', 'website', 'industry', 'company_size', 'region'}
 }
-
 # Mapping from common Dutch column names to internal English names (case-insensitive).
 HEADER_MAP_NL_EN = {
     'naam': 'name',
@@ -372,8 +371,8 @@ def init_db() -> None:
             );
         ''')
             # Add reminder_sent column to tasks table if missing (0 = not sent, 1 = sent)
-3    try:
-            
+#try:
+          
                       
       # Add reminder_sent column to tasks table if missing
     try:
