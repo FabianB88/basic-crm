@@ -805,6 +805,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         elif path == '/customers/add':
             if not logged_in:
                 self.respond_redirect('/login')
+                
                 return
             if method == 'POST':
                 length = int(self.headers.get('Content-Length', 0))
@@ -819,6 +820,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 category = params.get('category', ['klant'])[0].strip() or 'klant'
                 # Collect dynamic field values.  Dynamic field inputs use the
                 # prefix 'cf_' followed by the field name.  Additionally, the
+                
                 # raw custom_fields textarea (if present) allows JSON or
                 # key=value pairs to be specified.  We merge both sources.
                 import json
@@ -886,7 +888,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             except ValueError:
                 self.respond_not_found()
                 return
-            if method == 'POST':
+            if me
+            thod == 'POST':
                 length = int(self.headers.get('Content-Length', 0))
                 data = self.rfile.read(length).decode('utf-8')
                 params = urllib.parse.parse_qs(data)
@@ -897,6 +900,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 company = params.get('company', [''])[0].strip()
                 tags = params.get('tags', [''])[0].strip()
                 category = params.get('category', ['klant'])[0].strip() or 'klant'
+            
                 # Parse dynamic and raw custom fields.  Merge into a dict and
                 # encode as JSON for storage.  Supports JSON or key=value lines
                 # for raw custom_fields textarea.
@@ -962,6 +966,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
             else:
                 customer = self.get_customer(cid_int)
+             
                 if customer:
                     self.render_customer_form(customer)
                 else:
@@ -1938,6 +1943,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         # columns to mirror the mobile design from the provided screenshot.
         body += f'''
         <div class="card shadow-sm mt-4">
+
             <div class="card-body">
                 <form method="post">
                     <div class="row">
@@ -1962,6 +1968,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                             </div>
                             <div class="mb-3">
                                 <label for="company" class="form-label">Bedrijf</label>
+                             
                                 <input type="text" class="form-control" id="company" name="company" value="{html.escape(company or '')}">
                             </div>
                             <div class="mb-3">
@@ -1981,6 +1988,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                 <textarea class="form-control" id="custom_fields" name="custom_fields" rows="3">{html.escape(raw_custom_fields)}</textarea>
                                 <small class="form-text text-muted">Voer extra eigenschappen in als JSON (bijv. {{"linkedin": "http://...", "verjaardag": "2025-10-20"}}) of als key=value per regel.</small>
                             </div>
+                       
                         </div>
                     </div>
                     <div class="mt-3 d-flex justify-content-between">
@@ -2238,3 +2246,8 @@ def run_server() -> None:
 
 if __name__ == '__main__':
     run_server()
+
+
+
+
+
