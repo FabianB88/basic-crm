@@ -2155,6 +2155,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 GROUP BY u.id
             ''', (this_month,))
             user_inter_stats = {row['id']: row['interactions_month'] for row in cur.fetchall()}
+            cur.execute('SELECT created_by, COUNT(*) AS cnt FROM customers WHERE created_by IS NOT NULL GROUP BY created_by')
+            user_customer_stats = {row['created_by']: row['cnt'] for row in cur.fetchall()}
             # Recent notes by this user only
             cur.execute('''
                 SELECT notes.id AS note_id, notes.content, notes.created_at, customers.name AS customer_name
@@ -2191,19 +2193,22 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         body += _stat(total_overdue, 'Verlopen taken', '#dc3545' if total_overdue else '#388e3c')
         body += _stat(interactions_this_month, 'Interacties deze maand', '#1565c0')
         body += '</div>'
-        # Per-user stats table
-        body += '<div class="card"><div class="section-title">Statistieken per gebruiker (' + this_month + ')</div>'
-        body += '<table><thead><tr><th>Gebruiker</th><th>Open taken</th><th>Verlopen taken</th><th>Interacties deze maand</th></tr></thead><tbody>'
+        # Per-user stats table — collapsible
+        body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128200; Statistieken per gebruiker (' + this_month + ')</summary>'
+        body += '<div class="card" style="margin-top:0.25rem;">'
+        body += '<table><thead><tr><th>Gebruiker</th><th>Open taken</th><th>Verlopen taken</th><th>Interacties deze maand</th><th>Ingevoerde klanten</th></tr></thead><tbody>'
         for us in user_task_stats:
             inter_m = user_inter_stats.get(us['id'], 0)
+            cust_m = user_customer_stats.get(us['id'], 0)
             overdue_col = '#dc3545' if (us['overdue_tasks'] or 0) > 0 else '#388e3c'
             body += f'''<tr>
                 <td><a href="/users/profile?id={us['id']}" style="color:#c2185b;">{html.escape(us['username'])}</a></td>
                 <td>{us['open_tasks'] or 0}</td>
                 <td style="color:{overdue_col};font-weight:bold;">{us['overdue_tasks'] or 0}</td>
                 <td>{inter_m}</td>
+                <td>{cust_m}</td>
             </tr>'''
-        body += '</tbody></table></div>'
+        body += '</tbody></table></div></details>'
         # Tasks due soon section
         today_iso = datetime.date.today().isoformat()
         tasks_html = ''
