@@ -28,6 +28,9 @@ import secrets
 import html
 import os
 import hashlib
+import datetime
+import time
+import threading
 from typing import Tuple, Dict, Any, Optional, List
 
 # Additional imports for CSV/XLSX parsing in import feature
@@ -438,6 +441,20 @@ def init_db() -> None:
             );
         ''')
 
+        # Create customer_users table for many-to-many customer-user linking.
+        # Allows multiple users (account managers) to be linked to one customer.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS customer_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                linked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(customer_id, user_id),
+                FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
+
         conn.commit()
 
 
@@ -475,6 +492,78 @@ def get_custom_field_definitions() -> List[sqlite3.Row]:
         cur = conn.cursor()
         cur.execute('SELECT * FROM customer_fields ORDER BY id ASC')
         return cur.fetchall()
+
+
+def get_linked_user_ids(customer_id: int) -> List[int]:
+    """Return the list of user IDs linked to a customer."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.cursor()
+        cur.execute('SELECT user_id FROM customer_users WHERE customer_id = ?', (customer_id,))
+        return [row[0] for row in cur.fetchall()]
+
+
+def check_and_create_reminders() -> None:
+    """Check all customer-user links and create a reminder task if >90 days no contact."""
+    cutoff = (datetime.datetime.now() - datetime.timedelta(days=90)).strftime('%Y-%m-%d %H:%M:%S')
+    due = (datetime.datetime.now() + datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT cu.customer_id, cu.user_id, c.name AS customer_name
+            FROM customer_users cu
+            JOIN customers c ON cu.customer_id = c.id
+        ''')
+        links = cur.fetchall()
+        for link in links:
+            cid = link['customer_id']
+            uid = link['user_id']
+            customer_name = link['customer_name']
+            # Find the most recent contact: notes, interactions, or completed tasks
+            cur.execute('''
+                SELECT MAX(last_contact) AS last_contact FROM (
+                    SELECT MAX(created_at) AS last_contact FROM notes WHERE customer_id = ?
+                    UNION ALL
+                    SELECT MAX(created_at) AS last_contact FROM interactions WHERE customer_id = ?
+                    UNION ALL
+                    SELECT MAX(created_at) AS last_contact FROM tasks
+                      WHERE customer_id = ? AND status = 'completed'
+                )
+            ''', (cid, cid, cid))
+            row = cur.fetchone()
+            last_contact = row['last_contact'] if row else None
+            # Fall back to customer creation date if no contact activity exists
+            if not last_contact:
+                cur.execute('SELECT created_at FROM customers WHERE id = ?', (cid,))
+                cust_row = cur.fetchone()
+                last_contact = cust_row['created_at'] if cust_row else None
+            if last_contact and last_contact < cutoff:
+                # Only create a reminder if no open reminder task already exists
+                cur.execute('''
+                    SELECT id FROM tasks
+                    WHERE customer_id = ? AND user_id = ? AND status = 'open'
+                      AND title LIKE 'Herinnering:%'
+                ''', (cid, uid))
+                if not cur.fetchone():
+                    cur.execute('''
+                        INSERT INTO tasks (title, description, due_date, customer_id, user_id)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        'Herinnering: neem contact op',
+                        f'Er is meer dan 90 dagen geen contact geweest met {customer_name}.',
+                        due, cid, uid
+                    ))
+        conn.commit()
+
+
+def _reminder_loop() -> None:
+    """Background thread: run reminder checks once daily."""
+    while True:
+        try:
+            check_and_create_reminders()
+        except Exception as e:
+            print(f'[Reminder] Fout bij controleren herinneringen: {e}')
+        time.sleep(86400)  # 24 uur
 
 
 def create_user(username: str, email: str, password: str) -> Tuple[bool, str]:
@@ -870,6 +959,20 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     conn.commit()
                 # Log the creation
                 log_action(user_id, 'create', 'customers', cid_new, f"name={name}")
+                # Save customer-user links (many-to-many)
+                linked_user_ids = params.get('linked_users', [])
+                if linked_user_ids:
+                    with sqlite3.connect(DB_PATH) as conn2:
+                        cur2 = conn2.cursor()
+                        for uid_str in linked_user_ids:
+                            try:
+                                cur2.execute(
+                                    'INSERT OR IGNORE INTO customer_users (customer_id, user_id) VALUES (?, ?)',
+                                    (cid_new, int(uid_str))
+                                )
+                            except (ValueError, sqlite3.Error):
+                                pass
+                        conn2.commit()
                 self.send_response(302)
                 self.send_header('Location', '/customers')
                 self.end_headers()
@@ -888,8 +991,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             except ValueError:
                 self.respond_not_found()
                 return
-            if me
-            thod == 'POST':
+            if method == 'POST':
                 length = int(self.headers.get('Content-Length', 0))
                 data = self.rfile.read(length).decode('utf-8')
                 params = urllib.parse.parse_qs(data)
@@ -961,6 +1063,20 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     conn.commit()
                 # Log the update
                 log_action(user_id, 'update', 'customers', cid_int, f"name={name}")
+                # Update customer-user links: replace existing with new selection
+                linked_user_ids = params.get('linked_users', [])
+                with sqlite3.connect(DB_PATH) as conn2:
+                    cur2 = conn2.cursor()
+                    cur2.execute('DELETE FROM customer_users WHERE customer_id = ?', (cid_int,))
+                    for uid_str in linked_user_ids:
+                        try:
+                            cur2.execute(
+                                'INSERT OR IGNORE INTO customer_users (customer_id, user_id) VALUES (?, ?)',
+                                (cid_int, int(uid_str))
+                            )
+                        except (ValueError, sqlite3.Error):
+                            pass
+                    conn2.commit()
                 self.send_response(302)
                 self.send_header('Location', '/customers')
                 self.end_headers()
@@ -1887,6 +2003,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         page_title = 'Klant bewerken' if customer else 'Klant toevoegen'
         # Determine user id for navigation
         logged, uid, _ = self.parse_session()
+        # Load all users and currently linked users for this customer
+        with sqlite3.connect(DB_PATH) as conn_u:
+            conn_u.row_factory = sqlite3.Row
+            cur_u = conn_u.cursor()
+            cur_u.execute('SELECT id, username FROM users ORDER BY username ASC')
+            all_users = cur_u.fetchall()
+        linked_ids = get_linked_user_ids(customer['id']) if customer else []
         body = html_header(page_title, logged_in, username, uid)
         body += f'<h2 class="mt-4">{page_title}</h2>'
         if error:
@@ -1988,7 +2111,16 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                 <textarea class="form-control" id="custom_fields" name="custom_fields" rows="3">{html.escape(raw_custom_fields)}</textarea>
                                 <small class="form-text text-muted">Voer extra eigenschappen in als JSON (bijv. {{"linkedin": "http://...", "verjaardag": "2025-10-20"}}) of als key=value per regel.</small>
                             </div>
-                       
+                            <div class="mb-3">
+                                <label class="form-label"><strong>Gekoppelde accountmanagers</strong></label>
+                                <div style="border:1px solid #ced4da; border-radius:4px; padding:0.5rem; max-height:150px; overflow-y:auto;">
+                                    {''.join(
+                                        f'<div><label><input type="checkbox" name="linked_users" value="{u[\"id\"]}" {"checked" if u[\"id\"] in linked_ids else ""}> {html.escape(u[\"username\"])}</label></div>'
+                                        for u in all_users
+                                    ) if all_users else '<em>Geen gebruikers gevonden.</em>'}
+                                </div>
+                                <small class="form-text text-muted">Selecteer de gebruikers die verantwoordelijk zijn voor deze klant. Na 90 dagen geen contact ontvangen zij automatisch een herinnering.</small>
+                            </div>
                         </div>
                     </div>
                     <div class="mt-3 d-flex justify-content-between">
@@ -2096,6 +2228,20 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             creator_name = '-'
         category_display = (customer.get('category') or 'klant').capitalize()
+        # Build linked users HTML
+        linked_users_html = ''
+        try:
+            linked_uids = get_linked_user_ids(customer['id'])
+            if linked_uids:
+                names = []
+                for luid in linked_uids:
+                    lu = get_user_by_id(luid)
+                    if lu:
+                        names.append(html.escape(lu['username']))
+                if names:
+                    linked_users_html = '<p><span class="icon">&#128101;</span>Accountmanagers: ' + ', '.join(names) + '</p>'
+        except Exception:
+            pass
         body += f'''<div class="card">
             <div class="section-title">Contactgegevens</div>
             <p><span class="icon">&#9993;</span>{html.escape(customer['email'])}</p>
@@ -2106,6 +2252,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             <p><span class="icon">&#128221;</span>Type: {category_display}</p>
             <p><span class="icon">&#128100;</span>Toegevoegd door: {creator_name}</p>
             <p><span class="icon">&#128197;</span>Aangemaakt op {customer['created_at']}</p>
+            {linked_users_html}
             {custom_html}
         </div>'''
         # ----- Tasks card -----
@@ -2235,6 +2382,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 def run_server() -> None:
     init_db()
+    # Start background thread that checks for 90-day reminder tasks once per day
+    reminder_thread = threading.Thread(target=_reminder_loop, daemon=True)
+    reminder_thread.start()
     with socketserver.TCPServer((HOST, PORT), CRMRequestHandler) as httpd:
         print(f'Starting CRM server on http://{HOST}:{PORT}')
         try:
