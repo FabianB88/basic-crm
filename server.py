@@ -1768,7 +1768,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 LIMIT 5
             ''', (user_id,))
             notes = cur.fetchall()
-            # Open tasks for this user: overdue + upcoming 14 days
+            # All open tasks (general overview): overdue + upcoming 14 days
             cur.execute('''
                 SELECT tasks.id AS task_id, tasks.title, tasks.due_date,
                        customers.name AS customer_name, customers.id AS customer_id,
@@ -1776,13 +1776,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 FROM tasks
                 JOIN customers ON tasks.customer_id = customers.id
                 JOIN users ON tasks.user_id = users.id
-                WHERE tasks.user_id = ?
-                  AND tasks.status = 'open'
+                WHERE tasks.status = 'open'
                   AND tasks.due_date IS NOT NULL
                   AND DATE(tasks.due_date) <= DATE('now', '+14 day')
                 ORDER BY tasks.due_date ASC
-                LIMIT 15
-            ''', (user_id,))
+                LIMIT 20
+            ''')
             due_tasks = cur.fetchall()
         body = html_header('Dashboard', True, username, user_id)
         body += '<h2 class="mt-4">Dashboard</h2>'
@@ -1805,7 +1804,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         else:
             tasks_html = '<p>Geen openstaande taken.</p>'
         body += f'''<div class="card">
-            <div class="section-title">Mijn taken (komende 14 dagen + verlopen)</div>
+            <div class="section-title">Openstaande taken (komende 14 dagen + verlopen)</div>
             {tasks_html}
         </div>'''
         # Recent notes
