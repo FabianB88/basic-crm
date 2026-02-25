@@ -1249,6 +1249,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 title = params.get('title', [''])[0].strip()
                 description = params.get('description', [''])[0].strip()
                 due_date = params.get('due_date', [''])[0].strip()
+                assigned_raw = params.get('assigned_user_id', [''])[0].strip()
+                try:
+                    assigned_uid = int(assigned_raw) if assigned_raw else user_id
+                except ValueError:
+                    assigned_uid = user_id
                 if not title:
                     # Re-render customer page with error message
                     customer = self.get_customer(cid_int)
@@ -1258,7 +1263,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 with sqlite3.connect(DB_PATH) as conn:
                     cur = conn.cursor()
                     cur.execute('''INSERT INTO tasks (title, description, due_date, customer_id, user_id) VALUES (?, ?, ?, ?, ?)''',
-                                (title, description or None, due_date or None, cid_int, user_id))
+                                (title, description or None, due_date or None, cid_int, assigned_uid))
                     task_id = cur.lastrowid
                     conn.commit()
                 # Log the task creation
@@ -2599,6 +2604,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 ORDER BY interactions.created_at DESC
             ''', (customer['id'],))
             interactions = cur.fetchall()
+            # All users for task assignment dropdown
+            cur.execute('SELECT id, username FROM users ORDER BY username ASC')
+            all_users_for_task = cur.fetchall()
         logged_in, _, _ = self.parse_session()
         body = html_header(f'Klant: {customer["name"]}', logged_in, username, user_id)
         # ----- Profile card -----
@@ -2687,11 +2695,16 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         tasks_section = ''
         if task_error:
             tasks_section += f'<div class="alert alert-danger">{html.escape(task_error)}</div>'
-        # Task form
+        # Task form — build user options for assignment dropdown
+        user_options = '<option value="">Mezelf</option>'
+        for u in all_users_for_task:
+            uname = html.escape(u['username'])
+            user_options += f'<option value="{u["id"]}">{uname}</option>'
         tasks_section += f'''<form method="post" action="/tasks/add?customer_id={customer['id']}" style="margin-bottom:1rem;">
             <label>Titel<br><input type="text" name="title" required style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
             <label>Vervaldatum<br><input type="date" name="due_date" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
             <label>Beschrijving<br><input type="text" name="description" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
+            <label>Toewijzen aan<br><select name="assigned_user_id" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;">{user_options}</select></label>
             <button type="submit" style="background-color:#c2185b; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Taak toevoegen</button>
         </form>'''
         # Task list
@@ -2709,7 +2722,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 tasks_section += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0;">
                     <span style="color:{status_color}; font-weight:bold;">{status_label}</span>
                     <strong style="margin-left:0.5rem;">{html.escape(task['title'])}</strong> (Vervaldatum: {html.escape(due)}){description}
-                    <div style="font-size:0.8rem; color:#666;">Aangemaakt op {task['created_at']} door {html.escape(task['author'])}</div>
+                    <div style="font-size:0.8rem; color:#666;">Aangemaakt op {task['created_at']} &middot; Toegewezen aan: <strong>{html.escape(task['author'])}</strong></div>
                     <div style="font-size:0.8rem;">{action_html}</div>
                 </div>'''
         else:
