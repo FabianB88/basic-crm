@@ -515,7 +515,8 @@ def check_and_create_reminders() -> None:
             cid = link['customer_id']
             uid = link['user_id']
             customer_name = link['customer_name']
-            # Find the most recent contact: notes, interactions, or completed tasks
+            # Find the most recent contact: notes, interactions, or any task
+            # (open or completed, but NOT auto-generated reminders)
             cur.execute('''
                 SELECT MAX(last_contact) AS last_contact FROM (
                     SELECT MAX(created_at) AS last_contact FROM notes WHERE customer_id = ?
@@ -523,7 +524,7 @@ def check_and_create_reminders() -> None:
                     SELECT MAX(created_at) AS last_contact FROM interactions WHERE customer_id = ?
                     UNION ALL
                     SELECT MAX(created_at) AS last_contact FROM tasks
-                      WHERE customer_id = ? AND status = 'completed'
+                      WHERE customer_id = ? AND title NOT LIKE 'Herinnering:%'
                 )
             ''', (cid, cid, cid))
             row = cur.fetchone()
