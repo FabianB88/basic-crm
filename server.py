@@ -1272,6 +1272,74 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
             else:
                 self.respond_not_found()
+        elif path == '/tasks/resolve':
+            # Resolve a task: mark complete AND log an interaction in one step.
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            tid = query_params.get('id', [None])[0]
+            from_page = query_params.get('from', ['dashboard'])[0]
+            # Whitelist allowed from_page values to prevent open redirect
+            if from_page not in ('dashboard', 'users/profile'):
+                from_page = 'dashboard'
+            if not tid:
+                self.respond_not_found()
+                return
+            try:
+                tid_int = int(tid)
+            except ValueError:
+                self.respond_not_found()
+                return
+            # Fetch task details
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute('''
+                    SELECT t.id, t.title, t.description, t.customer_id,
+                           c.name AS customer_name
+                    FROM tasks t JOIN customers c ON t.customer_id = c.id
+                    WHERE t.id = ?
+                ''', (tid_int,))
+                task_row = cur.fetchone()
+            if not task_row:
+                self.respond_not_found()
+                return
+            task_data = dict(task_row)
+            if method == 'GET':
+                self.render_resolve_form(tid_int, task_data, user_id, username, from_page)
+            elif method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                interaction_type = params.get('interaction_type', [''])[0].strip()
+                note = params.get('note', [''])[0].strip()
+                contact_date = params.get('contact_date', [''])[0].strip() or None
+                if not interaction_type:
+                    self.render_resolve_form(tid_int, task_data, user_id, username, from_page, error='Kies een contactmoment type.')
+                    return
+                cid_int = task_data['customer_id']
+                with sqlite3.connect(DB_PATH) as conn:
+                    cur = conn.cursor()
+                    # Mark task complete
+                    cur.execute('UPDATE tasks SET status = ? WHERE id = ?', ('completed', tid_int))
+                    # Log the interaction
+                    cur.execute(
+                        'INSERT INTO interactions (interaction_type, note, contact_date, customer_id, user_id) VALUES (?, ?, ?, ?, ?)',
+                        (interaction_type, note or None, contact_date, cid_int, user_id)
+                    )
+                    inter_id = cur.lastrowid
+                    conn.commit()
+                log_action(user_id, 'update', 'tasks', tid_int, 'status=completed via resolve')
+                log_action(user_id, 'create', 'interactions', inter_id, f'type={interaction_type} via resolve')
+                try:
+                    check_and_create_reminders()
+                except Exception:
+                    pass
+                # Redirect back to from_page; for profile include the user id
+                if from_page == 'users/profile':
+                    self.respond_redirect(f'/users/profile?id={user_id}')
+                else:
+                    self.respond_redirect('/dashboard')
         elif path == '/tasks/complete':
             # Mark a task as completed.
             if not logged_in:
@@ -1810,7 +1878,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 date_color = '#dc3545' if is_overdue else '#555'
                 overdue_label = ' <span style="background:#dc3545;color:#fff;font-size:0.75rem;border-radius:3px;padding:0.1rem 0.4rem;">verlopen</span>' if is_overdue else ''
                 cust_link = f"<a href='/customers/view?id={t['customer_id']}' style='color:#c2185b;font-weight:bold;'>{html.escape(t['customer_name'])}</a>"
-                tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'>{html.escape(t['title'])}{overdue_label}<br>{cust_link} &middot; <small style='color:{date_color};'>&#128197; {date_str}</small></div>"
+                assigned_to = html.escape(t['assigned_to']) if t['assigned_to'] else ''
+                resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=dashboard' style='float:right;background:#198754;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;'>&#10003; Resolve</a>"
+                tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'>{resolve_btn}{html.escape(t['title'])}{overdue_label}<br>{cust_link} &middot; <small style='color:#888;'>{assigned_to}</small> &middot; <small style='color:{date_color};'>&#128197; {date_str}</small></div>"
         else:
             tasks_html = '<p>Geen openstaande taken.</p>'
         body += f'''<div class="card">
@@ -1902,6 +1972,45 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             <button type="submit" class="btn btn-primary">Gebruiker toevoegen</button>
             <a href="/users" class="btn btn-link">Annuleren</a>
         </form>'''
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_resolve_form(self, task_id: int, task: Dict[str, Any], user_id: int, username: str, from_page: str, error: str = '') -> None:
+        """Render the resolve-task form: mark complete + log interaction in one step."""
+        today = datetime.date.today().isoformat()
+        error_html = f'<div style="color:#dc3545;margin-bottom:0.75rem;">{html.escape(error)}</div>' if error else ''
+        body = html_header('Taak afronden', True, username, user_id)
+        body += f'''<div class="container"><div class="card" style="max-width:560px;margin:2rem auto;">
+        <h3 style="margin-top:0;">&#10003; Taak afronden</h3>
+        {error_html}
+        <p><strong>{html.escape(task["title"])}</strong><br>
+        <small style="color:#666;">Klant: <a href="/customers/view?id={task["customer_id"]}" style="color:#c2185b;">{html.escape(task["customer_name"])}</a></small></p>
+        <form method="POST" action="/tasks/resolve?id={task_id}&from={html.escape(from_page)}">
+            <div style="margin-bottom:0.75rem;">
+                <label style="font-weight:bold;">Contactmoment type *</label><br>
+                <select name="interaction_type" class="form-control" required>
+                    <option value="">-- Kies type --</option>
+                    <option value="call">Bellen</option>
+                    <option value="email">E-mail</option>
+                    <option value="message">Bericht</option>
+                    <option value="meeting">Meeting</option>
+                </select>
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label style="font-weight:bold;">Datum contact</label><br>
+                <input type="date" name="contact_date" class="form-control" value="{today}">
+            </div>
+            <div style="margin-bottom:1rem;">
+                <label style="font-weight:bold;">Notitie (optioneel)</label><br>
+                <textarea name="note" class="form-control" rows="3" placeholder="Wat is er besproken?"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">&#10003; Afronden &amp; interactie opslaan</button>
+            <a href="/{html.escape(from_page)}" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
+        </form>
+        </div></div>'''
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -2002,10 +2111,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 is_overdue = t['due_date'] and t['due_date'] < datetime.date.today().isoformat()
                 due_color = '#dc3545' if is_overdue else '#555'
                 desc = f'<br><small style="color:#666;">{html.escape(t["description"])}</small>' if t['description'] else ''
+                resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=users/profile' style='background:#198754;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;margin-left:0.5rem;'>&#10003; Resolve</a>"
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.5rem 0;">
                     <a href="/customers/view?id={t['customer_id']}" style="color:#c2185b;font-weight:bold;">{html.escape(t['customer_name'])}</a>
                     &mdash; {html.escape(t['title'])}{desc}
-                    <span style="float:right;color:{due_color};font-size:0.85rem;">&#128197; {due}</span>
+                    <span style="float:right;color:{due_color};font-size:0.85rem;">&#128197; {due} {resolve_btn}</span>
                 </div>'''
         else:
             body += '<p style="color:#388e3c;">Geen open taken. &#10003;</p>'
