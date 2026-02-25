@@ -44,8 +44,8 @@ except Exception:
     openpyxl = None
 
 # Allowed base columns for import
-ALLOWED_BASE_C {OLS = 
-{    'name', 'email', 'phone', 'address', 'company', 'tags', 'category', 'custom_fields', 'website', 'industry', 'company_size', 'region'}
+ALLOWED_BASE_COLS = {
+    'name', 'email', 'phone', 'address', 'company', 'tags', 'category', 'custom_fields', 'website', 'industry', 'company_size', 'region'
 }
 # Mapping from common Dutch column names to internal English names (case-insensitive).
 HEADER_MAP_NL_EN = {
@@ -374,16 +374,12 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         ''')
-            # Add reminder_sent column to tasks table if missing (0 = not sent, 1 = sent)
-#try:
-          
-                      
-      # Add reminder_sent column to tasks table if missing
-    try:
-                    cur.execute("ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-      # Create interactions table.  This table records each interaction (e.g.
+        # Add reminder_sent column to tasks table if missing (0 = not sent, 1 = sent)
+        try:
+            cur.execute("ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
         # a type, an optional note and a timestamp.  Interactions are
         # optional and can be added through the customer detail page.
@@ -400,17 +396,17 @@ def init_db() -> None:
 
             );
         ''')
-                # Create documents table for storing SharePoint links per customer.
-    cur.execute('''
-                    CREATE TABLE IF NOT EXISTS documents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            customer_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            url TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
-        );
-    ''')
+        # Create documents table for storing SharePoint links per customer.
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+            );
+        ''')
 
 
         # Create audit_logs table for tracking changes.  Each log entry
@@ -1473,7 +1469,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         # Remove extracted JSON before insertion
                         custom_json = row.pop('__custom_json', None)
                         # Determine a base name. If missing or empty, use a placeholder.
-                      raw_name = (row.get('name') or row.get('company') or '').strip()
+                        raw_name = (row.get('name') or row.get('company') or '').strip()
                         base_name = raw_name if raw_name else 'Naam onbekend'
                         # Ensure the name is unique by appending a number when necessary.
                         final_name = base_name
@@ -2021,10 +2017,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         company = customer['company'] if customer else ''
         tags = customer['tags'] if customer else ''
         category = customer['category'] if customer else 'klant'
-            website = customer.get('website', '') if customer else ''
-    industry = customer.get('industry', '') if customer else ''
-    company_size = customer.get('company_size', '') if customer else ''
-    region = customer.get('region', '') if customer else ''
+        website = customer.get('website', '') if customer else ''
+        industry = customer.get('industry', '') if customer else ''
+        company_size = customer.get('company_size', '') if customer else ''
+        region = customer.get('region', '') if customer else ''
         # Load custom fields (stored as JSON string) and present as a JSON
         # representation in the form for editing.  If no custom fields
         # exist, leave blank.  When saving, the raw text will be saved to
@@ -2059,6 +2055,20 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 </div>'''
         except Exception:
             dynamic_fields_html = ''
+
+        # Build user checkboxes HTML for accountmanager selection
+        if all_users:
+            checkbox_items = []
+            for u in all_users:
+                uid_val = u['id']
+                uname = html.escape(u['username'])
+                checked = 'checked' if uid_val in linked_ids else ''
+                checkbox_items.append(
+                    f'<div><label><input type="checkbox" name="linked_users" value="{uid_val}" {checked}> {uname}</label></div>'
+                )
+            users_checkboxes_html = ''.join(checkbox_items)
+        else:
+            users_checkboxes_html = '<em>Geen gebruikers gevonden.</em>'
 
         # Wrap the form in a card for better visual separation.  The card uses
         # Bootstrap classes but will also look clean when the custom inline
@@ -2114,10 +2124,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                             <div class="mb-3">
                                 <label class="form-label"><strong>Gekoppelde accountmanagers</strong></label>
                                 <div style="border:1px solid #ced4da; border-radius:4px; padding:0.5rem; max-height:150px; overflow-y:auto;">
-                                    {''.join(
-                                        f'<div><label><input type="checkbox" name="linked_users" value="{u[\"id\"]}" {"checked" if u[\"id\"] in linked_ids else ""}> {html.escape(u[\"username\"])}</label></div>'
-                                        for u in all_users
-                                    ) if all_users else '<em>Geen gebruikers gevonden.</em>'}
+                                    {users_checkboxes_html}
                                 </div>
                                 <small class="form-text text-muted">Selecteer de gebruikers die verantwoordelijk zijn voor deze klant. Na 90 dagen geen contact ontvangen zij automatisch een herinnering.</small>
                             </div>
