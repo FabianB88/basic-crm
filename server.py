@@ -1758,16 +1758,17 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             cur = conn.cursor()
             cur.execute('SELECT COUNT(*) FROM customers')
             total_customers = cur.fetchone()[0]
-            # Recent notes
+            # Recent notes by this user only
             cur.execute('''
                 SELECT notes.id AS note_id, notes.content, notes.created_at, customers.name AS customer_name
                 FROM notes
                 JOIN customers ON notes.customer_id = customers.id
+                WHERE notes.user_id = ?
                 ORDER BY notes.created_at DESC
                 LIMIT 5
-            ''')
+            ''', (user_id,))
             notes = cur.fetchall()
-            # Tasks due within next 7 days for this user and still open
+            # Open tasks for this user: overdue + upcoming 14 days
             cur.execute('''
                 SELECT tasks.id AS task_id, tasks.title, tasks.due_date,
                        customers.name AS customer_name, customers.id AS customer_id,
@@ -1778,10 +1779,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 WHERE tasks.user_id = ?
                   AND tasks.status = 'open'
                   AND tasks.due_date IS NOT NULL
-                  AND DATE(tasks.due_date) <= DATE('now', '+7 day')
-                  AND DATE(tasks.due_date) >= DATE('now')
+                  AND DATE(tasks.due_date) <= DATE('now', '+14 day')
                 ORDER BY tasks.due_date ASC
-                LIMIT 10
+                LIMIT 15
             ''', (user_id,))
             due_tasks = cur.fetchall()
         body = html_header('Dashboard', True, username, user_id)
@@ -1792,17 +1792,20 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             <p>Totaal aantal klanten: <strong>{total_customers}</strong></p>
         </div>'''
         # Tasks due soon section
+        today_iso = datetime.date.today().isoformat()
         tasks_html = ''
         if due_tasks:
             for t in due_tasks:
                 date_str = t['due_date'] if t['due_date'] else ''
+                is_overdue = date_str < today_iso
+                date_color = '#dc3545' if is_overdue else '#555'
+                overdue_label = ' <span style="background:#dc3545;color:#fff;font-size:0.75rem;border-radius:3px;padding:0.1rem 0.4rem;">verlopen</span>' if is_overdue else ''
                 cust_link = f"<a href='/customers/view?id={t['customer_id']}' style='color:#c2185b;font-weight:bold;'>{html.escape(t['customer_name'])}</a>"
-                assigned = html.escape(t['assigned_to']) if t['assigned_to'] else '-'
-                tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'>{html.escape(t['title'])}<br>{cust_link} &middot; <small style='color:#666;'>Toegewezen aan: {assigned} &middot; Vervaldatum: {date_str}</small></div>"
+                tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'>{html.escape(t['title'])}{overdue_label}<br>{cust_link} &middot; <small style='color:{date_color};'>&#128197; {date_str}</small></div>"
         else:
-            tasks_html = '<p>Geen taken die binnenkort vervallen.</p>'
+            tasks_html = '<p>Geen openstaande taken.</p>'
         body += f'''<div class="card">
-            <div class="section-title">Taken komende 7 dagen</div>
+            <div class="section-title">Mijn taken (komende 14 dagen + verlopen)</div>
             {tasks_html}
         </div>'''
         # Recent notes
@@ -1941,6 +1944,24 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 LIMIT 30
             ''', (pid,))
             interactions = cur.fetchall()
+            # Notes added by this user
+            cur.execute('''
+                SELECT n.content, n.created_at, c.name AS customer_name, c.id AS customer_id
+                FROM notes n
+                JOIN customers c ON n.customer_id = c.id
+                WHERE n.user_id = ?
+                ORDER BY n.created_at DESC
+                LIMIT 30
+            ''', (pid,))
+            user_notes = cur.fetchall()
+            # Customers added by this user
+            cur.execute('''
+                SELECT id, name, company, category, created_at
+                FROM customers
+                WHERE created_by = ?
+                ORDER BY created_at DESC
+            ''', (pid,))
+            added_customers = cur.fetchall()
         body = html_header(f'Profiel: {profile_user["username"]}', True, viewer_username, viewer_id)
         body += f'<h2 class="mt-4">&#128100; {html.escape(profile_user["username"])}</h2>'
         body += f'<p style="color:#666;">{html.escape(profile_user["email"])} &middot; Account aangemaakt op {profile_user["created_at"][:10]}</p>'
@@ -2012,15 +2033,40 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         else:
             body += '<p>Nog geen interacties geregistreerd.</p>'
         body += '</div>'
+        # Notes by this user (collapsible)
+        body += '<details style="margin-bottom:1rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128221; Toegevoegde notities (' + str(len(user_notes)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
+        if user_notes:
+            for n in user_notes:
+                snippet = (n['content'][:120] + '…') if len(n['content']) > 120 else n['content']
+                body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">
+                    <small style="color:#888;">{n['created_at'][:10]}</small>
+                    &middot; <a href="/customers/view?id={n['customer_id']}" style="color:#c2185b;">{html.escape(n['customer_name'])}</a>
+                    <br><span style="color:#333;">{html.escape(snippet)}</span>
+                </div>'''
+        else:
+            body += '<p>Nog geen notities toegevoegd.</p>'
+        body += '</div></details>'
+        # Customers added by this user (collapsible)
+        body += '<details style="margin-bottom:1rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#127970; Toegevoegde klanten (' + str(len(added_customers)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
+        if added_customers:
+            for c in added_customers:
+                body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">
+                    <a href="/customers/view?id={c['id']}" style="color:#c2185b;font-weight:bold;">{html.escape(c['name'])}</a>
+                    {(' &middot; ' + html.escape(c['company'])) if c['company'] else ''}
+                    <span style="font-size:0.8rem;color:#888;float:right;">{(c['category'] or 'klant').capitalize()} &middot; {c['created_at'][:10]}</span>
+                </div>'''
+        else:
+            body += '<p>Nog geen klanten toegevoegd.</p>'
+        body += '</div></details>'
         # Completed tasks (collapsed summary)
         if done_tasks:
-            body += '<div class="card"><div class="section-title">Voltooide taken (laatste 20)</div>'
+            body += '<details><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#10003; Voltooide taken (' + str(len(done_tasks)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
             for t in done_tasks:
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;color:#888;">
                     &#10003; {html.escape(t['title'])} &middot;
                     <a href="/customers/view?id={t['customer_id']}" style="color:#aaa;">{html.escape(t['customer_name'])}</a>
                 </div>'''
-            body += '</div>'
+            body += '</div></details>'
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
