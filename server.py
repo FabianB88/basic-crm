@@ -529,22 +529,15 @@ def check_and_create_reminders() -> None:
             cur.execute('SELECT username FROM users WHERE id = ?', (uid,))
             user_row = cur.fetchone()
             account_name = user_row['username'] if user_row else f'gebruiker {uid}'
-            # Find the most recent real contact date.
-            # For interactions: use contact_date if set, otherwise created_at.
-            # Exclude auto-generated reminder tasks.
+            # Last contact = most recent interaction date.
+            # We use contact_date when set (allows backdating), otherwise fall back
+            # to created_at. Only interactions count as real customer contact —
+            # notes and tasks are internal records and would override backdated dates.
             cur.execute('''
-                SELECT MAX(last_contact) AS last_contact FROM (
-                    SELECT MAX(created_at) AS last_contact
-                      FROM notes WHERE customer_id = ?
-                    UNION ALL
-                    SELECT MAX(COALESCE(contact_date, created_at)) AS last_contact
-                      FROM interactions WHERE customer_id = ?
-                    UNION ALL
-                    SELECT MAX(created_at) AS last_contact
-                      FROM tasks
-                     WHERE customer_id = ? AND title NOT LIKE 'Herinnering:%'
-                )
-            ''', (cid, cid, cid))
+                SELECT MAX(COALESCE(contact_date, DATE(created_at))) AS last_contact
+                FROM interactions
+                WHERE customer_id = ?
+            ''', (cid,))
             row = cur.fetchone()
             last_contact = row['last_contact'] if row else None
             # Fall back to customer creation date (new customers also need follow-up)
