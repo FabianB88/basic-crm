@@ -529,15 +529,22 @@ def check_and_create_reminders() -> None:
             cur.execute('SELECT username FROM users WHERE id = ?', (uid,))
             user_row = cur.fetchone()
             account_name = user_row['username'] if user_row else f'gebruiker {uid}'
-            # Last contact = most recent interaction date.
-            # We use contact_date when set (allows backdating), otherwise fall back
-            # to created_at. Only interactions count as real customer contact —
-            # notes and tasks are internal records and would override backdated dates.
+            # Last contact = most recent activity across notes, interactions and tasks.
+            # For interactions we use contact_date when set (supports backdating),
+            # otherwise fall back to created_at. Notes and tasks always use created_at.
             cur.execute('''
-                SELECT MAX(COALESCE(contact_date, DATE(created_at))) AS last_contact
-                FROM interactions
-                WHERE customer_id = ?
-            ''', (cid,))
+                SELECT MAX(last_contact) AS last_contact FROM (
+                    SELECT MAX(DATE(created_at)) AS last_contact
+                      FROM notes WHERE customer_id = ?
+                    UNION ALL
+                    SELECT MAX(COALESCE(contact_date, DATE(created_at))) AS last_contact
+                      FROM interactions WHERE customer_id = ?
+                    UNION ALL
+                    SELECT MAX(DATE(created_at)) AS last_contact
+                      FROM tasks
+                     WHERE customer_id = ? AND title NOT LIKE 'Herinnering:%'
+                )
+            ''', (cid, cid, cid))
             row = cur.fetchone()
             last_contact = row['last_contact'] if row else None
             # Fall back to customer creation date (new customers also need follow-up)
@@ -1169,6 +1176,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         conn.commit()
                     # Log note creation
                     log_action(user_id, 'create', 'notes', note_id)
+                try:
+                    check_and_create_reminders()
+                except Exception:
+                    pass
                 self.send_response(302)
                 self.send_header('Location', f'/customers/view?id={cid_int}')
                 self.end_headers()
@@ -1241,6 +1252,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     conn.commit()
                 # Log the task creation
                 log_action(user_id, 'create', 'tasks', task_id, f"title={title}")
+                try:
+                    check_and_create_reminders()
+                except Exception:
+                    pass
                 self.send_response(302)
                 self.send_header('Location', f'/customers/view?id={cid_int}')
                 self.end_headers()
@@ -1333,6 +1348,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     conn.commit()
                 # Log new interaction
                 log_action(user_id, 'create', 'interactions', inter_id, f"type={interaction_type}")
+                # Recalculate reminders immediately so backdated contacts take effect now
+                try:
+                    check_and_create_reminders()
+                except Exception:
+                    pass
                 self.send_response(302)
                 self.send_header('Location', f'/customers/view?id={cid_int}')
                 self.end_headers()
