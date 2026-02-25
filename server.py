@@ -2057,17 +2057,20 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             dynamic_fields_html = ''
 
-        # Build user checkboxes HTML for accountmanager selection
+        # Build user pill-toggle HTML (CSS checkbox hack: no JS needed)
         if all_users:
-            checkbox_items = []
+            pill_items = []
             for u in all_users:
                 uid_val = u['id']
                 uname = html.escape(u['username'])
                 checked = 'checked' if uid_val in linked_ids else ''
-                checkbox_items.append(
-                    f'<div><label><input type="checkbox" name="linked_users" value="{uid_val}" {checked}> {uname}</label></div>'
+                pill_items.append(
+                    f'<span class="user-pill">'
+                    f'<input type="checkbox" name="linked_users" value="{uid_val}" id="upill_{uid_val}" {checked}>'
+                    f'<label for="upill_{uid_val}">{uname}</label>'
+                    f'</span>'
                 )
-            users_checkboxes_html = ''.join(checkbox_items)
+            users_checkboxes_html = ''.join(pill_items)
         else:
             users_checkboxes_html = '<em>Geen gebruikers gevonden.</em>'
 
@@ -2123,11 +2126,17 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                 <small class="form-text text-muted">Voer extra eigenschappen in als JSON (bijv. {{"linkedin": "http://...", "verjaardag": "2025-10-20"}}) of als key=value per regel.</small>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label"><strong>Gekoppelde accountmanagers</strong></label>
-                                <div style="border:1px solid #ced4da; border-radius:4px; padding:0.5rem; max-height:150px; overflow-y:auto;">
+                                <label class="form-label"><strong>Accountmanagers</strong></label>
+                                <style>
+                                    .user-pill input[type=checkbox]{{display:none}}
+                                    .user-pill label{{display:inline-block;padding:0.35rem 1rem;border-radius:20px;border:2px solid #c2185b;color:#c2185b;cursor:pointer;margin:0.25rem 0.25rem 0.25rem 0;font-size:0.9rem;transition:background 0.15s,color 0.15s}}
+                                    .user-pill label:hover{{background:#fce4ec}}
+                                    .user-pill input[type=checkbox]:checked+label{{background:#c2185b;color:#fff;font-weight:bold}}
+                                </style>
+                                <div style="margin-top:0.3rem;">
                                     {users_checkboxes_html}
                                 </div>
-                                <small class="form-text text-muted">Selecteer de gebruikers die verantwoordelijk zijn voor deze klant. Na 90 dagen geen contact ontvangen zij automatisch een herinnering.</small>
+                                <small class="form-text text-muted">Klik op een naam om die accountmanager te koppelen. Gekoppelde managers ontvangen na 90 dagen geen contact automatisch een herinnering.</small>
                             </div>
                         </div>
                     </div>
