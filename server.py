@@ -1465,6 +1465,84 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Length', str(len(content)))
             self.end_headers()
             self.wfile.write(content)
+        elif path == '/tasks/archive':
+            # Global archive of all completed tasks.
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            # Optional filter by user
+            filter_uid_raw = query_params.get('user_id', [None])[0]
+            try:
+                filter_uid = int(filter_uid_raw) if filter_uid_raw else None
+            except ValueError:
+                filter_uid = None
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                if filter_uid:
+                    cur.execute('''
+                        SELECT t.id AS task_id, t.title, t.description, t.due_date, t.created_at,
+                               c.name AS customer_name, c.id AS customer_id,
+                               u.username AS assigned_to
+                        FROM tasks t
+                        JOIN customers c ON t.customer_id = c.id
+                        JOIN users u ON t.user_id = u.id
+                        WHERE t.status = 'completed' AND t.user_id = ?
+                        ORDER BY t.created_at DESC
+                    ''', (filter_uid,))
+                else:
+                    cur.execute('''
+                        SELECT t.id AS task_id, t.title, t.description, t.due_date, t.created_at,
+                               c.name AS customer_name, c.id AS customer_id,
+                               u.username AS assigned_to
+                        FROM tasks t
+                        JOIN customers c ON t.customer_id = c.id
+                        JOIN users u ON t.user_id = u.id
+                        WHERE t.status = 'completed'
+                        ORDER BY t.created_at DESC
+                    ''')
+                done_tasks = cur.fetchall()
+                cur.execute('SELECT id, username FROM users ORDER BY username ASC')
+                all_users = cur.fetchall()
+            # Build page
+            body = html_header('Archief voltooide taken', True, username, user_id)
+            body += '<h2 class="mt-4">&#10003; Archief voltooide taken</h2>'
+            # Filter bar
+            user_opts = '<option value="">Alle gebruikers</option>'
+            for u in all_users:
+                sel = 'selected' if filter_uid == u['id'] else ''
+                user_opts += f'<option value="{u["id"]}" {sel}>{html.escape(u["username"])}</option>'
+            body += f'''<div class="card" style="padding:0.75rem 1rem;">
+                <form method="GET" action="/tasks/archive" style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
+                    <label style="margin:0;">Filteren op gebruiker:
+                        <select name="user_id" onchange="this.form.submit()" style="margin-left:0.4rem;padding:0.3rem 0.5rem;border:1px solid #ced4da;border-radius:4px;">
+                            {user_opts}
+                        </select>
+                    </label>
+                    <a href="/tasks/archive" style="color:#c2185b;font-size:0.9rem;">Wis filter</a>
+                </form>
+            </div>'''
+            body += f'<div class="card"><div class="section-title">Voltooide taken ({len(done_tasks)})</div>'
+            if done_tasks:
+                body += '<table><thead><tr><th>Taak</th><th>Klant</th><th>Toegewezen aan</th><th>Vervaldatum</th><th>Afgerond op</th></tr></thead><tbody>'
+                for t in done_tasks:
+                    desc = f'<br><small style="color:#888;">{html.escape(t["description"])}</small>' if t['description'] else ''
+                    body += f'''<tr>
+                        <td>{html.escape(t["title"])}{desc}</td>
+                        <td><a href="/customers/view?id={t["customer_id"]}" style="color:#c2185b;">{html.escape(t["customer_name"])}</a></td>
+                        <td>{html.escape(t["assigned_to"])}</td>
+                        <td style="color:#555;">{t["due_date"] or "-"}</td>
+                        <td style="color:#888;font-size:0.85rem;">{t["created_at"][:10]}</td>
+                    </tr>'''
+                body += '</tbody></table>'
+            else:
+                body += '<p>Geen voltooide taken gevonden.</p>'
+            body += '</div>'
+            body += html_footer()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(body.encode('utf-8'))
         elif path == '/audit':
             # Display audit logs.  Only admin can view.
             if not logged_in or not is_admin(user_id):
@@ -1889,7 +1967,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         else:
             tasks_html = '<p>Geen openstaande taken.</p>'
         body += f'''<div class="card">
-            <div class="section-title">Openstaande taken (komende 14 dagen + verlopen)</div>
+            <div class="section-title">Openstaande taken (komende 14 dagen + verlopen) <a href="/tasks/archive" style="float:right;font-size:0.85rem;color:#c2185b;font-weight:normal;">&#128451; Archief voltooide taken</a></div>
             {tasks_html}
         </div>'''
         # Recent notes
