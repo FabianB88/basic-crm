@@ -704,7 +704,8 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
         # Import link accessible to all logged-in users
         nav_links.append("<a href='/import'>Importeren</a>")
         nav_links_left = ''.join(nav_links)
-        nav_links_right = f"<span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
+        profile_link = f"<a href='/users/profile?id={user_id}'>Mijn profiel</a>" if user_id else ''
+        nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
     else:
         nav_links_left = ''
         nav_links_right = "<a href='/login'>Inloggen</a>"
@@ -1427,6 +1428,50 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.render_user_form(error=msg, logged_in=True, username=username)
             else:
                 self.render_user_form(logged_in=True, username=username)
+        elif path == '/users/delete':
+            # Delete a user account.  Admin only.  Cannot delete the admin (id=1).
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            uid_del = query_params.get('id', [None])[0]
+            try:
+                uid_del_int = int(uid_del) if uid_del else None
+            except ValueError:
+                uid_del_int = None
+            if not uid_del_int:
+                self.respond_redirect('/users')
+                return
+            if uid_del_int == 1:
+                # Protect the admin account from deletion
+                self.respond_redirect('/users')
+                return
+            with sqlite3.connect(DB_PATH) as conn:
+                cur = conn.cursor()
+                cur.execute('DELETE FROM users WHERE id = ?', (uid_del_int,))
+                conn.commit()
+            log_action(user_id, 'delete', 'users', uid_del_int)
+            self.respond_redirect('/users')
+        elif path == '/users/profile':
+            # Personal dashboard: show tasks, customers and recent interactions for one user.
+            # Accessible to the user themselves or to admin.
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            profile_id_str = query_params.get('id', [str(user_id)])[0]
+            try:
+                profile_id = int(profile_id_str)
+            except ValueError:
+                self.respond_not_found()
+                return
+            # Only admin or the user themselves may view a profile
+            if profile_id != user_id and not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            profile_user = get_user_by_id(profile_id)
+            if not profile_user:
+                self.respond_not_found()
+                return
+            self.render_user_profile(profile_user, user_id, username)
         elif path == '/fields':
             # List and manage dynamic customer fields.  Admins only.
             if not logged_in or not is_admin(user_id):
@@ -1792,9 +1837,18 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         body += '<div class="section-title">Huidige gebruikers</div>'
         if users:
             for user in users:
-                body += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0;">
-                    <strong>{html.escape(user['username'])}</strong> ({html.escape(user['email'])})
-                    <div style="font-size:0.8rem; color:#666;">Aangemaakt op {user['created_at']}</div>
+                is_admin_user = user['id'] == 1
+                delete_btn = '' if is_admin_user else f'<a href="/users/delete?id={user["id"]}" class="btn btn-sm btn-danger" style="float:right;margin-left:0.5rem;" onclick="return confirm(\'Weet je zeker dat je {html.escape(user["username"])} wilt verwijderen?\');">Verwijder</a>'
+                body += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <strong>{html.escape(user['username'])}</strong> ({html.escape(user['email'])})
+                        {'<span style="font-size:0.75rem;background:#c2185b;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">admin</span>' if is_admin_user else ''}
+                        <div style="font-size:0.8rem; color:#666;">Aangemaakt op {user['created_at'][:10]}</div>
+                    </div>
+                    <div>
+                        <a href="/users/profile?id={user['id']}" class="btn btn-sm btn-secondary">Profiel</a>
+                        {delete_btn}
+                    </div>
                 </div>'''
         else:
             body += '<p>Er zijn nog geen gebruikers.</p>'
@@ -1836,6 +1890,137 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             <button type="submit" class="btn btn-primary">Gebruiker toevoegen</button>
             <a href="/users" class="btn btn-link">Annuleren</a>
         </form>'''
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_user_profile(self, profile_user: Dict[str, Any], viewer_id: int, viewer_username: str) -> None:
+        """Render the personal dashboard for a specific user account."""
+        pid = profile_user['id']
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            # Open tasks assigned to this user
+            cur.execute('''
+                SELECT t.id AS task_id, t.title, t.due_date, t.status, t.description,
+                       c.name AS customer_name, c.id AS customer_id
+                FROM tasks t
+                JOIN customers c ON t.customer_id = c.id
+                WHERE t.user_id = ? AND t.status = 'open'
+                ORDER BY COALESCE(t.due_date, '9999-12-31') ASC
+            ''', (pid,))
+            open_tasks = cur.fetchall()
+            # Completed tasks (last 20)
+            cur.execute('''
+                SELECT t.id AS task_id, t.title, t.due_date, c.name AS customer_name, c.id AS customer_id
+                FROM tasks t
+                JOIN customers c ON t.customer_id = c.id
+                WHERE t.user_id = ? AND t.status = 'completed'
+                ORDER BY t.created_at DESC LIMIT 20
+            ''', (pid,))
+            done_tasks = cur.fetchall()
+            # Customers linked to this user
+            cur.execute('''
+                SELECT c.id, c.name, c.company, c.email, c.phone, c.category
+                FROM customer_users cu
+                JOIN customers c ON cu.customer_id = c.id
+                WHERE cu.user_id = ?
+                ORDER BY c.name ASC
+            ''', (pid,))
+            linked_customers = cur.fetchall()
+            # Recent interactions logged by this user
+            cur.execute('''
+                SELECT i.interaction_type, i.note, i.contact_date, i.created_at,
+                       c.name AS customer_name, c.id AS customer_id
+                FROM interactions i
+                JOIN customers c ON i.customer_id = c.id
+                WHERE i.user_id = ?
+                ORDER BY COALESCE(i.contact_date, DATE(i.created_at)) DESC
+                LIMIT 30
+            ''', (pid,))
+            interactions = cur.fetchall()
+        body = html_header(f'Profiel: {profile_user["username"]}', True, viewer_username, viewer_id)
+        body += f'<h2 class="mt-4">&#128100; {html.escape(profile_user["username"])}</h2>'
+        body += f'<p style="color:#666;">{html.escape(profile_user["email"])} &middot; Account aangemaakt op {profile_user["created_at"][:10]}</p>'
+        # Stats row
+        overdue = [t for t in open_tasks if t['due_date'] and t['due_date'] < datetime.date.today().isoformat()]
+        body += f'''<div style="display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <div class="card" style="flex:1;min-width:140px;text-align:center;">
+                <div style="font-size:2rem;font-weight:bold;color:#c2185b;">{len(open_tasks)}</div>
+                <div>Open taken</div>
+            </div>
+            <div class="card" style="flex:1;min-width:140px;text-align:center;">
+                <div style="font-size:2rem;font-weight:bold;color:{'#dc3545' if overdue else '#388e3c'};">{len(overdue)}</div>
+                <div>Verlopen taken</div>
+            </div>
+            <div class="card" style="flex:1;min-width:140px;text-align:center;">
+                <div style="font-size:2rem;font-weight:bold;color:#1976d2;">{len(linked_customers)}</div>
+                <div>Gekoppelde klanten</div>
+            </div>
+            <div class="card" style="flex:1;min-width:140px;text-align:center;">
+                <div style="font-size:2rem;font-weight:bold;color:#7b1fa2;">{len(interactions)}</div>
+                <div>Recente interacties</div>
+            </div>
+        </div>'''
+        # Open tasks
+        body += '<div class="card"><div class="section-title">Open taken</div>'
+        if open_tasks:
+            for t in open_tasks:
+                due = t['due_date'] or '-'
+                is_overdue = t['due_date'] and t['due_date'] < datetime.date.today().isoformat()
+                due_color = '#dc3545' if is_overdue else '#555'
+                desc = f'<br><small style="color:#666;">{html.escape(t["description"])}</small>' if t['description'] else ''
+                body += f'''<div style="border-bottom:1px solid #eee;padding:0.5rem 0;">
+                    <a href="/customers/view?id={t['customer_id']}" style="color:#c2185b;font-weight:bold;">{html.escape(t['customer_name'])}</a>
+                    &mdash; {html.escape(t['title'])}{desc}
+                    <span style="float:right;color:{due_color};font-size:0.85rem;">&#128197; {due}</span>
+                </div>'''
+        else:
+            body += '<p style="color:#388e3c;">Geen open taken. &#10003;</p>'
+        body += '</div>'
+        # Linked customers
+        body += '<div class="card"><div class="section-title">Gekoppelde klanten</div>'
+        if linked_customers:
+            body += '<table><thead><tr><th>Naam</th><th>Bedrijf</th><th>Type</th><th>E-mail</th><th>Telefoon</th></tr></thead><tbody>'
+            for c in linked_customers:
+                body += f'''<tr>
+                    <td><a href="/customers/view?id={c['id']}" style="color:#c2185b;">{html.escape(c['name'])}</a></td>
+                    <td>{html.escape(c['company'] or '-')}</td>
+                    <td>{html.escape((c['category'] or 'klant').capitalize())}</td>
+                    <td>{html.escape(c['email'])}</td>
+                    <td>{html.escape(c['phone'] or '-')}</td>
+                </tr>'''
+            body += '</tbody></table>'
+        else:
+            body += '<p>Geen gekoppelde klanten.</p>'
+        body += '</div>'
+        # Recent interactions
+        body += '<div class="card"><div class="section-title">Recente interacties</div>'
+        type_labels = {'call': 'Bellen', 'email': 'E-mail', 'message': 'Bericht', 'meeting': 'Meeting'}
+        if interactions:
+            for i in interactions:
+                date_str = i['contact_date'] or i['created_at'][:10]
+                type_label = type_labels.get(i['interaction_type'], i['interaction_type'])
+                note_part = f' — <em>{html.escape(i["note"])}</em>' if i['note'] else ''
+                body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">
+                    <small style="color:#888;">{date_str}</small>
+                    <strong style="margin-left:0.5rem;">{type_label}</strong>
+                    &middot; <a href="/customers/view?id={i['customer_id']}" style="color:#c2185b;">{html.escape(i['customer_name'])}</a>{note_part}
+                </div>'''
+        else:
+            body += '<p>Nog geen interacties geregistreerd.</p>'
+        body += '</div>'
+        # Completed tasks (collapsed summary)
+        if done_tasks:
+            body += '<div class="card"><div class="section-title">Voltooide taken (laatste 20)</div>'
+            for t in done_tasks:
+                body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;color:#888;">
+                    &#10003; {html.escape(t['title'])} &middot;
+                    <a href="/customers/view?id={t['customer_id']}" style="color:#aaa;">{html.escape(t['customer_name'])}</a>
+                </div>'''
+            body += '</div>'
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
