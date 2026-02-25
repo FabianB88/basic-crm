@@ -1011,6 +1011,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                             except (ValueError, sqlite3.Error):
                                 pass
                         conn2.commit()
+                # Immediately create reminder tasks for linked users
+                try:
+                    check_and_create_reminders()
+                except Exception:
+                    pass
                 self.send_response(302)
                 self.send_header('Location', '/customers')
                 self.end_headers()
@@ -1115,6 +1120,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         except (ValueError, sqlite3.Error):
                             pass
                     conn2.commit()
+                # Immediately create reminder tasks for newly linked users
+                try:
+                    check_and_create_reminders()
+                except Exception:
+                    pass
                 self.send_response(302)
                 self.send_header('Location', '/customers')
                 self.end_headers()
