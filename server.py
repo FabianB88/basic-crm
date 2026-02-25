@@ -2713,7 +2713,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         </div>'''
         # Bulk action bar
         user_opts_bulk = '<option value="">-- Kies gebruiker --</option>' + ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users_bulk)
-        body += f'''<div id="bulk-bar" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.5rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+        body += f'''<div id="bulk-bar" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.5rem;gap:0.75rem;align-items:center;flex-wrap:wrap;">
             <strong id="bulk-count">0 geselecteerd</strong>
             <button type="button" onclick="bulkAction('intern')" class="btn btn-sm" style="background:#e3f0ff;color:#1565c0;border:1px solid #1565c0;">Intern</button>
             <button type="button" onclick="bulkAction('extern')" class="btn btn-sm" style="background:#f0f0f0;color:#555;border:1px solid #aaa;">Extern</button>
