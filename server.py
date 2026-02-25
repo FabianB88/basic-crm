@@ -708,12 +708,18 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
             nav_links.append("<a href='/reports'>Rapporten</a>")
         # Import link accessible to all logged-in users
         nav_links.append("<a href='/import'>Importeren</a>")
+        nav_links.append("<a href='/tasks/search'>Taken zoeken</a>")
         nav_links_left = ''.join(nav_links)
         profile_link = f"<a href='/users/profile?id={user_id}'>Mijn profiel</a>" if user_id else ''
         nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
+        nav_search = '''<form method="get" action="/customers" style="display:flex;align-items:center;margin:0 1rem;">
+            <input type="search" name="q" placeholder="&#128269; Klant zoeken..." style="padding:0.25rem 0.6rem;border:none;border-radius:4px 0 0 4px;font-size:0.85rem;width:160px;outline:none;">
+            <button type="submit" style="padding:0.25rem 0.6rem;background:#a3154e;color:#fff;border:none;border-radius:0 4px 4px 0;cursor:pointer;font-size:0.85rem;">&#10132;</button>
+        </form>'''
     else:
         nav_links_left = ''
         nav_links_right = "<a href='/login'>Inloggen</a>"
+        nav_search = ''
     return f'''<!doctype html>
 <html lang="nl">
 <head>
@@ -727,6 +733,7 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     <a href="/">CRM</a>
     <div class="spacer"></div>
     {nav_links_left}
+    {nav_search}
     <div class="spacer"></div>
     {nav_links_right}
 </nav>
@@ -936,7 +943,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             relation_filter = query_params.get('relatie', [''])[0].strip()
             if relation_filter not in ('intern', 'extern'):
                 relation_filter = ''
-            self.render_customers(search, relation_filter)
+            sort_col = query_params.get('sort', ['name'])[0].strip()
+            sort_dir = query_params.get('dir', ['asc'])[0].strip()
+            if sort_col not in ('name', 'company', 'category', 'relation_type', 'created_at'):
+                sort_col = 'name'
+            if sort_dir not in ('asc', 'desc'):
+                sort_dir = 'asc'
+            self.render_customers(search, relation_filter, sort_col, sort_dir)
         elif path == '/customers/add':
             if not logged_in:
                 self.respond_redirect('/login')
@@ -1175,6 +1188,61 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(302)
             self.send_header('Location', '/customers')
             self.end_headers()
+        elif path == '/customers/bulk':
+            # Bulk action on selected customers (POST only).
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            if method != 'POST':
+                self.respond_redirect('/customers')
+                return
+            length = int(self.headers.get('Content-Length', 0))
+            data = self.rfile.read(length).decode('utf-8')
+            params = urllib.parse.parse_qs(data)
+            action = params.get('bulk_action', [''])[0].strip()
+            # selected_ids is a list of values from multiple checkboxes
+            selected = params.get('selected_ids', [])
+            cid_list = []
+            for s in selected:
+                try:
+                    cid_list.append(int(s))
+                except ValueError:
+                    pass
+            if cid_list and action:
+                with sqlite3.connect(DB_PATH) as conn:
+                    cur = conn.cursor()
+                    if action in ('intern', 'extern'):
+                        for cid_b in cid_list:
+                            cur.execute('UPDATE customers SET relation_type=? WHERE id=?', (action, cid_b))
+                            log_action(user_id, 'update', 'customers', cid_b, f'bulk relation_type={action}')
+                    elif action == 'add_tag':
+                        tag_val = params.get('bulk_tag', [''])[0].strip()
+                        if tag_val:
+                            for cid_b in cid_list:
+                                cur.execute('SELECT tags FROM customers WHERE id=?', (cid_b,))
+                                row = cur.fetchone()
+                                existing = (row[0] or '') if row else ''
+                                tags_list = [t.strip() for t in existing.split(',') if t.strip()]
+                                if tag_val not in tags_list:
+                                    tags_list.append(tag_val)
+                                cur.execute('UPDATE customers SET tags=? WHERE id=?', (','.join(tags_list), cid_b))
+                                log_action(user_id, 'update', 'customers', cid_b, f'bulk add_tag={tag_val}')
+                    elif action == 'link_user':
+                        uid_val = params.get('bulk_user_id', [''])[0].strip()
+                        if uid_val.isdigit():
+                            uid_int_b = int(uid_val)
+                            for cid_b in cid_list:
+                                try:
+                                    cur.execute('INSERT OR IGNORE INTO customer_users (customer_id, user_id) VALUES (?,?)', (cid_b, uid_int_b))
+                                    log_action(user_id, 'create', 'customer_users', cid_b, f'bulk link user={uid_int_b}')
+                                except Exception:
+                                    pass
+                    conn.commit()
+                try:
+                    check_and_create_reminders()
+                except Exception:
+                    pass
+            self.respond_redirect('/customers')
         elif path == '/customers/view':
             if not logged_in:
                 self.respond_redirect('/login')
@@ -1301,7 +1369,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             tid = query_params.get('id', [None])[0]
             from_page = query_params.get('from', ['dashboard'])[0]
             # Whitelist allowed from_page values to prevent open redirect
-            if from_page not in ('dashboard', 'users/profile'):
+            if from_page not in ('dashboard', 'users/profile', 'tasks/search'):
                 from_page = 'dashboard'
             if not tid:
                 self.respond_not_found()
@@ -1356,9 +1424,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     check_and_create_reminders()
                 except Exception:
                     pass
-                # Redirect back to from_page; for profile include the user id
+                # Redirect back to from_page
                 if from_page == 'users/profile':
                     self.respond_redirect(f'/users/profile?id={user_id}')
+                elif from_page == 'tasks/search':
+                    self.respond_redirect('/tasks/search')
                 else:
                     self.respond_redirect('/dashboard')
         elif path == '/tasks/complete':
@@ -1481,6 +1551,130 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Length', str(len(content)))
             self.end_headers()
             self.wfile.write(content)
+        elif path == '/tasks/search':
+            # Search tasks by title/description with optional user and status filters.
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            q = query_params.get('q', [''])[0].strip()
+            filter_uid_raw = query_params.get('user_id', [''])[0]
+            filter_status = query_params.get('status', [''])[0].strip()
+            try:
+                filter_uid = int(filter_uid_raw) if filter_uid_raw else None
+            except ValueError:
+                filter_uid = None
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                conditions = ["1=1"]
+                args = []
+                if q:
+                    conditions.append('(t.title LIKE ? OR t.description LIKE ?)')
+                    like = f'%{q}%'
+                    args.extend([like, like])
+                if filter_uid:
+                    conditions.append('t.user_id = ?')
+                    args.append(filter_uid)
+                if filter_status in ('open', 'completed'):
+                    conditions.append('t.status = ?')
+                    args.append(filter_status)
+                where = ' AND '.join(conditions)
+                cur.execute(f'''
+                    SELECT t.id AS task_id, t.title, t.description, t.due_date, t.status, t.created_at,
+                           c.name AS customer_name, c.id AS customer_id,
+                           u.username AS assigned_to
+                    FROM tasks t
+                    JOIN customers c ON t.customer_id = c.id
+                    JOIN users u ON t.user_id = u.id
+                    WHERE {where}
+                    ORDER BY COALESCE(t.due_date,'9999-12-31') ASC, t.created_at DESC
+                    LIMIT 200
+                ''', args)
+                results = cur.fetchall()
+                cur.execute('SELECT id, username FROM users ORDER BY username ASC')
+                all_users = cur.fetchall()
+            today_iso = datetime.date.today().isoformat()
+            body = html_header('Taken zoeken', True, username, user_id)
+            body += '<h2 class="mt-4">&#128269; Taken zoeken</h2>'
+            user_opts = '<option value="">Alle gebruikers</option>'
+            for u in all_users:
+                sel = 'selected' if filter_uid == u['id'] else ''
+                user_opts += f'<option value="{u["id"]}" {sel}>{html.escape(u["username"])}</option>'
+            stat_opts = f'<option value="">Alle statussen</option><option value="open" {"selected" if filter_status=="open" else ""}>Open</option><option value="completed" {"selected" if filter_status=="completed" else ""}>Voltooid</option>'
+            body += f'''<div class="card" style="padding:0.75rem 1rem;">
+                <form method="GET" action="/tasks/search" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
+                    <div>
+                        <label style="font-size:0.85rem;font-weight:bold;">Zoekterm</label><br>
+                        <input type="search" name="q" value="{html.escape(q)}" placeholder="Taakttitel of omschrijving..." style="padding:0.35rem 0.6rem;border:1px solid #ced4da;border-radius:4px;min-width:220px;">
+                    </div>
+                    <div>
+                        <label style="font-size:0.85rem;font-weight:bold;">Gebruiker</label><br>
+                        <select name="user_id" style="padding:0.35rem 0.5rem;border:1px solid #ced4da;border-radius:4px;">{user_opts}</select>
+                    </div>
+                    <div>
+                        <label style="font-size:0.85rem;font-weight:bold;">Status</label><br>
+                        <select name="status" style="padding:0.35rem 0.5rem;border:1px solid #ced4da;border-radius:4px;">{stat_opts}</select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Zoeken</button>
+                    <a href="/tasks/search" style="color:#c2185b;font-size:0.9rem;padding:0.4rem 0;">Wis filter</a>
+                </form>
+            </div>'''
+            body += f'<div class="card"><div class="section-title">Resultaten ({len(results)})</div>'
+            if results:
+                body += '<table><thead><tr><th>Taak</th><th>Klant</th><th>Toegewezen aan</th><th>Vervaldatum</th><th>Status</th></tr></thead><tbody>'
+                for t in results:
+                    is_overdue = t['due_date'] and t['due_date'] < today_iso and t['status'] == 'open'
+                    date_color = '#dc3545' if is_overdue else '#555'
+                    status_badge = '<span style="background:#e8f5e9;color:#388e3c;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.8rem;">Voltooid</span>' if t['status'] == 'completed' else '<span style="background:#fff8e1;color:#f57f17;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.8rem;">Open</span>'
+                    desc = f'<br><small style="color:#888;">{html.escape(t["description"])}</small>' if t['description'] else ''
+                    resolve_btn = f' <a href="/tasks/resolve?id={t["task_id"]}&from=tasks/search" style="background:#198754;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.75rem;text-decoration:none;">&#10003;</a>' if t['status'] == 'open' else ''
+                    body += f'''<tr>
+                        <td>{html.escape(t["title"])}{desc}{resolve_btn}</td>
+                        <td><a href="/customers/view?id={t["customer_id"]}" style="color:#c2185b;">{html.escape(t["customer_name"])}</a></td>
+                        <td>{html.escape(t["assigned_to"])}</td>
+                        <td style="color:{date_color};">{t["due_date"] or "-"}</td>
+                        <td>{status_badge}</td>
+                    </tr>'''
+                body += '</tbody></table>'
+            else:
+                body += '<p>Geen taken gevonden.</p>'
+            body += '</div>'
+            body += html_footer()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(body.encode('utf-8'))
+        elif path == '/tasks/export':
+            # Export all tasks to CSV.
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            import csv, io as _io
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute('''
+                    SELECT t.id, t.title, t.description, t.status, t.due_date, t.created_at,
+                           c.name AS customer_name, u.username AS assigned_to
+                    FROM tasks t
+                    JOIN customers c ON t.customer_id = c.id
+                    JOIN users u ON t.user_id = u.id
+                    ORDER BY t.created_at DESC
+                ''')
+                rows = cur.fetchall()
+            header = ['id','title','description','status','due_date','customer_name','assigned_to','created_at']
+            out = _io.StringIO()
+            writer = csv.writer(out)
+            writer.writerow(header)
+            for r in rows:
+                writer.writerow([r[h] if r[h] is not None else '' for h in header])
+            content = out.getvalue().encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/csv; charset=utf-8')
+            self.send_header('Content-Disposition', 'attachment; filename="taken_export.csv"')
+            self.send_header('Content-Length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
         elif path == '/tasks/archive':
             # Global archive of all completed tasks.
             if not logged_in:
@@ -1538,7 +1732,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <a href="/tasks/archive" style="color:#c2185b;font-size:0.9rem;">Wis filter</a>
                 </form>
             </div>'''
-            body += f'<div class="card"><div class="section-title">Voltooide taken ({len(done_tasks)})</div>'
+            body += f'<div class="card"><div class="section-title">Voltooide taken ({len(done_tasks)}) <a href="/tasks/export" style="float:right;font-size:0.85rem;color:#c2185b;font-weight:normal;">&#8659; Exporteer alle taken (CSV)</a></div>'
             if done_tasks:
                 body += '<table><thead><tr><th>Taak</th><th>Klant</th><th>Toegewezen aan</th><th>Vervaldatum</th><th>Afgerond op</th></tr></thead><tbody>'
                 for t in done_tasks:
@@ -1930,11 +2124,37 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
 
     def render_dashboard(self, user_id: int, username: str) -> None:
         # Count customers, get recent notes and tasks due soon
+        this_month = datetime.date.today().strftime('%Y-%m')
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute('SELECT COUNT(*) FROM customers')
             total_customers = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM tasks WHERE status='open'")
+            total_open_tasks = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM tasks WHERE status='open' AND due_date < DATE('now')")
+            total_overdue = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM interactions WHERE strftime('%Y-%m', COALESCE(contact_date, created_at)) = ?", (this_month,))
+            interactions_this_month = cur.fetchone()[0]
+            # Per-user stats: open tasks, overdue, interactions this month
+            cur.execute('''
+                SELECT u.id, u.username,
+                    SUM(CASE WHEN t.status='open' THEN 1 ELSE 0 END) AS open_tasks,
+                    SUM(CASE WHEN t.status='open' AND t.due_date < DATE('now') THEN 1 ELSE 0 END) AS overdue_tasks
+                FROM users u
+                LEFT JOIN tasks t ON t.user_id = u.id
+                GROUP BY u.id ORDER BY u.username ASC
+            ''')
+            user_task_stats = cur.fetchall()
+            cur.execute('''
+                SELECT u.id,
+                    COUNT(i.id) AS interactions_month
+                FROM users u
+                LEFT JOIN interactions i ON i.user_id = u.id
+                    AND strftime('%Y-%m', COALESCE(i.contact_date, i.created_at)) = ?
+                GROUP BY u.id
+            ''', (this_month,))
+            user_inter_stats = {row['id']: row['interactions_month'] for row in cur.fetchall()}
             # Recent notes by this user only
             cur.execute('''
                 SELECT notes.id AS note_id, notes.content, notes.created_at, customers.name AS customer_name
@@ -1962,11 +2182,28 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             due_tasks = cur.fetchall()
         body = html_header('Dashboard', True, username, user_id)
         body += '<h2 class="mt-4">Dashboard</h2>'
-        # Summary card
-        body += f'''<div class="card">
-            <div class="section-title">Overzicht</div>
-            <p>Totaal aantal klanten: <strong>{total_customers}</strong></p>
-        </div>'''
+        # Stats row
+        def _stat(val, label, color='#c2185b'):
+            return f'<div class="card" style="flex:1;min-width:130px;text-align:center;padding:0.75rem;"><div style="font-size:1.8rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.85rem;color:#555;">{label}</div></div>'
+        body += f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+        body += _stat(total_customers, 'Klanten')
+        body += _stat(total_open_tasks, 'Open taken', '#f57f17')
+        body += _stat(total_overdue, 'Verlopen taken', '#dc3545' if total_overdue else '#388e3c')
+        body += _stat(interactions_this_month, 'Interacties deze maand', '#1565c0')
+        body += '</div>'
+        # Per-user stats table
+        body += '<div class="card"><div class="section-title">Statistieken per gebruiker (' + this_month + ')</div>'
+        body += '<table><thead><tr><th>Gebruiker</th><th>Open taken</th><th>Verlopen taken</th><th>Interacties deze maand</th></tr></thead><tbody>'
+        for us in user_task_stats:
+            inter_m = user_inter_stats.get(us['id'], 0)
+            overdue_col = '#dc3545' if (us['overdue_tasks'] or 0) > 0 else '#388e3c'
+            body += f'''<tr>
+                <td><a href="/users/profile?id={us['id']}" style="color:#c2185b;">{html.escape(us['username'])}</a></td>
+                <td>{us['open_tasks'] or 0}</td>
+                <td style="color:{overdue_col};font-weight:bold;">{us['overdue_tasks'] or 0}</td>
+                <td>{inter_m}</td>
+            </tr>'''
+        body += '</tbody></table></div>'
         # Tasks due soon section
         today_iso = datetime.date.today().isoformat()
         tasks_html = ''
@@ -2412,7 +2649,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
 
-    def render_customers(self, search: str, relation_filter: str = '') -> None:
+    def render_customers(self, search: str, relation_filter: str = '', sort_col: str = 'name', sort_dir: str = 'asc') -> None:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
@@ -2426,19 +2663,30 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 conditions.append('relation_type = ?')
                 args.append(relation_filter)
             where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
-            cur.execute(f'SELECT * FROM customers {where} ORDER BY name ASC', args)
+            safe_col = sort_col if sort_col in ('name','company','category','relation_type','created_at') else 'name'
+            safe_dir = 'ASC' if sort_dir == 'asc' else 'DESC'
+            cur.execute(f'SELECT * FROM customers {where} ORDER BY LOWER({safe_col}) {safe_dir}', args)
             customers = cur.fetchall()
+            cur.execute('SELECT id, username FROM users ORDER BY username ASC')
+            all_users_bulk = cur.fetchall()
         logged_in, _, username = self.parse_session()
         _, uid, _ = self.parse_session()
         body = html_header('Klanten', logged_in, username, uid)
         body += '<h2 class="mt-4">Klanten</h2>'
-        # Filter buttons Intern / Extern
         q_enc = html.escape(search)
+        # Helper: build base URL keeping current filters
+        def _base_url(extra_params=''):
+            parts = []
+            if search: parts.append(f'q={q_enc}')
+            if relation_filter: parts.append(f'relatie={relation_filter}')
+            if extra_params: parts.append(extra_params)
+            return '/customers' + ('?' + '&'.join(parts) if parts else '')
+        # Filter buttons Intern / Extern
         def _tab(label, val):
             active = relation_filter == val
             base_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #c2185b;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
             style = base_style + ('background:#c2185b;color:#fff;font-weight:bold;' if active else 'color:#c2185b;')
-            href = f'/customers?relatie={val}' + (f'&q={q_enc}' if search else '')
+            href = f'/customers?relatie={val}' + (f'&q={q_enc}' if search else '') + (f'&sort={sort_col}&dir={sort_dir}' if sort_col != 'name' or sort_dir != 'asc' else '')
             return f'<a href="{href}" style="{style}">{label}</a>'
         alle_active = not relation_filter
         alle_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #c2185b;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
@@ -2451,19 +2699,52 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
                 <form method="get" class="d-flex" role="search" style="margin:0;">
                     {'<input type="hidden" name="relatie" value="' + relation_filter + '">' if relation_filter else ''}
+                    {'<input type="hidden" name="sort" value="' + sort_col + '"><input type="hidden" name="dir" value="' + sort_dir + '">' if sort_col != 'name' or sort_dir != 'asc' else ''}
                     <input class="form-control me-2" type="search" name="q" placeholder="Zoeken" value="{q_enc}" style="min-width:180px;">
                     <button class="btn btn-outline-success" type="submit">Zoek</button>
                 </form>
                 <a href="/customers/add" class="btn btn-primary">+ Toevoegen</a>
             </div>
+        </div>'''
+        # Bulk action bar
+        user_opts_bulk = '<option value="">-- Kies gebruiker --</option>' + ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users_bulk)
+        body += f'''<div id="bulk-bar" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.5rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+            <strong id="bulk-count">0 geselecteerd</strong>
+            <button type="button" onclick="bulkAction('intern')" class="btn btn-sm" style="background:#e3f0ff;color:#1565c0;border:1px solid #1565c0;">Intern</button>
+            <button type="button" onclick="bulkAction('extern')" class="btn btn-sm" style="background:#f0f0f0;color:#555;border:1px solid #aaa;">Extern</button>
+            <span style="color:#aaa;">|</span>
+            <input type="text" id="bulk-tag-input" placeholder="Tag toevoegen..." style="padding:0.25rem 0.5rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem;">
+            <button type="button" onclick="bulkAction('add_tag')" class="btn btn-sm btn-secondary">+ Tag</button>
+            <span style="color:#aaa;">|</span>
+            <select id="bulk-user-select" style="padding:0.25rem 0.5rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem;">{user_opts_bulk}</select>
+            <button type="button" onclick="bulkAction('link_user')" class="btn btn-sm btn-primary">Koppel</button>
         </div>
-        <table class="table table-striped table-hover mt-1">
+        <form method="post" action="/customers/bulk" id="bulk-form">
+            <input type="hidden" name="bulk_action" id="bulk-action-input">
+            <input type="hidden" name="bulk_tag" id="bulk-tag-hidden">
+            <input type="hidden" name="bulk_user_id" id="bulk-user-hidden">
+        '''
+        # Sort helper: build th with sort link
+        def _th(label, col):
+            arrow = ''
+            if sort_col == col:
+                arrow = ' &#9650;' if sort_dir == 'asc' else ' &#9660;'
+                new_dir = 'desc' if sort_dir == 'asc' else 'asc'
+            else:
+                new_dir = 'asc'
+            parts = [f'sort={col}', f'dir={new_dir}']
+            if search: parts.append(f'q={q_enc}')
+            if relation_filter: parts.append(f'relatie={relation_filter}')
+            href = '/customers?' + '&'.join(parts)
+            return f'<th><a href="{href}" style="color:inherit;text-decoration:none;">{label}{arrow}</a></th>'
+        body += f'''<table class="table table-striped table-hover mt-1">
             <thead>
                 <tr>
-                    <th>Naam</th>
-                    <th>Bedrijf</th>
-                    <th>Type</th>
-                    <th>Relatie</th>
+                    <th style="width:32px;"><input type="checkbox" id="select-all" onclick="toggleAll(this)" title="Alles selecteren"></th>
+                    {_th('Naam','name')}
+                    {_th('Bedrijf','company')}
+                    {_th('Type','category')}
+                    {_th('Relatie','relation_type')}
                     <th>Tags</th>
                     <th>E‑mail</th>
                     <th>Telefoon</th>
@@ -2489,6 +2770,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 except Exception:
                     creator = '-'
                 body += f'''<tr>
+                    <td><input type="checkbox" name="selected_ids" value="{cust['id']}" class="row-cb" onchange="updateBulk()"></td>
                     <td><a href="/customers/view?id={cust['id']}">{html.escape(cust['name'])}</a></td>
                     <td>{html.escape(cust['company'] or '-')}</td>
                     <td>{category_display}</td>
@@ -2503,8 +2785,25 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     </td>
                 </tr>'''
         else:
-            body += '<tr><td colspan="9" class="text-center">Geen klanten gevonden.</td></tr>'
-        body += '</tbody></table>'
+            body += '<tr><td colspan="10" class="text-center">Geen klanten gevonden.</td></tr>'
+        body += '</tbody></table></form>'
+        body += '''<script>
+function toggleAll(cb){document.querySelectorAll('.row-cb').forEach(c=>c.checked=cb.checked);updateBulk();}
+function updateBulk(){
+    var checked=document.querySelectorAll('.row-cb:checked').length;
+    var bar=document.getElementById('bulk-bar');
+    document.getElementById('bulk-count').textContent=checked+' geselecteerd';
+    bar.style.display=checked>0?'flex':'none';
+}
+function bulkAction(action){
+    var checked=document.querySelectorAll('.row-cb:checked');
+    if(!checked.length){alert('Selecteer eerst klanten.');return;}
+    document.getElementById('bulk-action-input').value=action;
+    document.getElementById('bulk-tag-hidden').value=document.getElementById('bulk-tag-input').value;
+    document.getElementById('bulk-user-hidden').value=document.getElementById('bulk-user-select').value;
+    document.getElementById('bulk-form').submit();
+}
+</script>'''
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -2811,6 +3110,25 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             {linked_users_html}
             {custom_html}
         </div>'''
+        # ----- Activity timeline (collapsible) -----
+        type_icon = {'call': '📞', 'email': '📧', 'message': '💬', 'meeting': '🤝'}
+        type_label_map = {'call': 'Bellen', 'email': 'E-mail', 'message': 'Bericht', 'meeting': 'Meeting'}
+        timeline_items = []
+        for t in tasks:
+            date_val = t['due_date'] or t['created_at'][:10]
+            status_col = '#388e3c' if t['status'] == 'completed' else '#f57f17'
+            timeline_items.append((date_val, f'<span style="color:{status_col};">📋</span> <strong>{html.escape(t["title"])}</strong> <small style="color:#888;">(Taak · {html.escape(t["author"])} · {date_val})</small>'))
+        for n in notes:
+            timeline_items.append((n['created_at'][:10], f'📝 {html.escape((n["content"][:80] + "…") if len(n["content"]) > 80 else n["content"])} <small style="color:#888;">(Notitie · {html.escape(n["author"] or "")} · {n["created_at"][:10]})</small>'))
+        for i in interactions:
+            d = i['created_at'][:10]
+            lbl = type_label_map.get(i['interaction_type'], i['interaction_type'])
+            icon = type_icon.get(i['interaction_type'], '🔔')
+            note_part = f' — {html.escape(i["note"])}' if i['note'] else ''
+            timeline_items.append((d, f'{icon} <strong>{lbl}</strong>{note_part} <small style="color:#888;">(Interactie · {html.escape(i["author"])} · {d})</small>'))
+        timeline_items.sort(key=lambda x: x[0], reverse=True)
+        tl_html = ''.join(f'<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">{item}</div>' for _, item in timeline_items) if timeline_items else '<p style="color:#888;">Nog geen activiteit.</p>'
+        body += f'<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">📋 Activiteitenoverzicht ({len(timeline_items)})</summary><div class="card" style="margin-top:0.25rem;">{tl_html}</div></details>'
         # ----- Tasks card -----
         # Show task error if present
         tasks_section = ''
