@@ -396,6 +396,12 @@ def init_db() -> None:
 
             );
         ''')
+        # Add contact_date to interactions if missing (allows backdating contacts)
+        try:
+            cur.execute('SELECT contact_date FROM interactions LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE interactions ADD COLUMN contact_date DATE')
+
         # Create documents table for storing SharePoint links per customer.
         cur.execute('''
             CREATE TABLE IF NOT EXISTS documents (
@@ -499,9 +505,13 @@ def get_linked_user_ids(customer_id: int) -> List[int]:
 
 
 def check_and_create_reminders() -> None:
-    """Check all customer-user links and create a reminder task if >90 days no contact."""
-    cutoff = (datetime.datetime.now() - datetime.timedelta(days=90)).strftime('%Y-%m-%d %H:%M:%S')
-    due = (datetime.datetime.now() + datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+    """Maintain one open reminder task per customer-user link.
+
+    The reminder due date is always: last_contact_date + 90 days.
+    - New customer linked today  → reminder due in 90 days.
+    - Contact logged 2 months ago → reminder due in 1 month.
+    - New contact logged today  → existing reminder pushed forward 90 days.
+    """
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -515,41 +525,71 @@ def check_and_create_reminders() -> None:
             cid = link['customer_id']
             uid = link['user_id']
             customer_name = link['customer_name']
-            # Find the most recent contact: notes, interactions, or any task
-            # (open or completed, but NOT auto-generated reminders)
+            # Look up the accountmanager's username for display in the task
+            cur.execute('SELECT username FROM users WHERE id = ?', (uid,))
+            user_row = cur.fetchone()
+            account_name = user_row['username'] if user_row else f'gebruiker {uid}'
+            # Find the most recent real contact date.
+            # For interactions: use contact_date if set, otherwise created_at.
+            # Exclude auto-generated reminder tasks.
             cur.execute('''
                 SELECT MAX(last_contact) AS last_contact FROM (
-                    SELECT MAX(created_at) AS last_contact FROM notes WHERE customer_id = ?
+                    SELECT MAX(created_at) AS last_contact
+                      FROM notes WHERE customer_id = ?
                     UNION ALL
-                    SELECT MAX(created_at) AS last_contact FROM interactions WHERE customer_id = ?
+                    SELECT MAX(COALESCE(contact_date, created_at)) AS last_contact
+                      FROM interactions WHERE customer_id = ?
                     UNION ALL
-                    SELECT MAX(created_at) AS last_contact FROM tasks
-                      WHERE customer_id = ? AND title NOT LIKE 'Herinnering:%'
+                    SELECT MAX(created_at) AS last_contact
+                      FROM tasks
+                     WHERE customer_id = ? AND title NOT LIKE 'Herinnering:%'
                 )
             ''', (cid, cid, cid))
             row = cur.fetchone()
             last_contact = row['last_contact'] if row else None
-            # Fall back to customer creation date if no contact activity exists
+            # Fall back to customer creation date (new customers also need follow-up)
             if not last_contact:
                 cur.execute('SELECT created_at FROM customers WHERE id = ?', (cid,))
                 cust_row = cur.fetchone()
                 last_contact = cust_row['created_at'] if cust_row else None
-            if last_contact and last_contact < cutoff:
-                # Only create a reminder if no open reminder task already exists
+            if not last_contact:
+                continue
+            # Reminder due = last contact + 90 days
+            try:
+                last_dt = datetime.datetime.strptime(last_contact[:10], '%Y-%m-%d')
+            except ValueError:
+                continue
+            reminder_due = last_dt + datetime.timedelta(days=90)
+            due_str = reminder_due.strftime('%Y-%m-%d')
+            last_str = last_dt.strftime('%d-%m-%Y')
+            # Check for existing open reminder for this customer+user
+            cur.execute('''
+                SELECT id, due_date FROM tasks
+                WHERE customer_id = ? AND user_id = ? AND status = 'open'
+                  AND title LIKE 'Herinnering:%'
+            ''', (cid, uid))
+            existing = cur.fetchone()
+            description = (
+                f'Taak voor {account_name}: neem contact op met {customer_name}. '
+                f'Laatste contact: {last_str}.'
+            )
+            if existing:
+                # Update due_date and description if last contact changed
+                if existing['due_date'] != due_str:
+                    cur.execute(
+                        'UPDATE tasks SET due_date = ?, description = ? WHERE id = ?',
+                        (due_str, description, existing['id'])
+                    )
+            else:
+                # Create new reminder with correct due date
                 cur.execute('''
-                    SELECT id FROM tasks
-                    WHERE customer_id = ? AND user_id = ? AND status = 'open'
-                      AND title LIKE 'Herinnering:%'
-                ''', (cid, uid))
-                if not cur.fetchone():
-                    cur.execute('''
-                        INSERT INTO tasks (title, description, due_date, customer_id, user_id)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (
-                        'Herinnering: neem contact op',
-                        f'Er is meer dan 90 dagen geen contact geweest met {customer_name}.',
-                        due, cid, uid
-                    ))
+                    INSERT INTO tasks (title, description, due_date, customer_id, user_id)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    f'Herinnering: neem contact op met {customer_name}',
+                    description,
+                    due_str, cid, uid
+                ))
         conn.commit()
 
 
@@ -1285,15 +1325,17 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 params = urllib.parse.parse_qs(data)
                 interaction_type = params.get('interaction_type', [''])[0].strip()
                 note = params.get('note', [''])[0].strip()
+                contact_date = params.get('contact_date', [''])[0].strip() or None
                 if not interaction_type:
                     customer = self.get_customer(cid_int)
-                    # For now we reuse render_customer_detail with an error message
                     self.render_customer_detail(customer, user_id, username, task_error='Interactietype is verplicht.')
                     return
                 with sqlite3.connect(DB_PATH) as conn:
                     cur = conn.cursor()
-                    cur.execute('''INSERT INTO interactions (interaction_type, note, customer_id, user_id) VALUES (?, ?, ?, ?)''',
-                                (interaction_type, note or None, cid_int, user_id))
+                    cur.execute(
+                        'INSERT INTO interactions (interaction_type, note, contact_date, customer_id, user_id) VALUES (?, ?, ?, ?, ?)',
+                        (interaction_type, note or None, contact_date, cid_int, user_id)
+                    )
                     inter_id = cur.lastrowid
                     conn.commit()
                 # Log new interaction
@@ -1669,16 +1711,19 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             notes = cur.fetchall()
             # Tasks due within next 7 days for this user and still open
             cur.execute('''
-                SELECT tasks.id AS task_id, tasks.title, tasks.due_date, customers.name AS customer_name
+                SELECT tasks.id AS task_id, tasks.title, tasks.due_date,
+                       customers.name AS customer_name, customers.id AS customer_id,
+                       users.username AS assigned_to
                 FROM tasks
                 JOIN customers ON tasks.customer_id = customers.id
+                JOIN users ON tasks.user_id = users.id
                 WHERE tasks.user_id = ?
                   AND tasks.status = 'open'
                   AND tasks.due_date IS NOT NULL
                   AND DATE(tasks.due_date) <= DATE('now', '+7 day')
                   AND DATE(tasks.due_date) >= DATE('now')
                 ORDER BY tasks.due_date ASC
-                LIMIT 5
+                LIMIT 10
             ''', (user_id,))
             due_tasks = cur.fetchall()
         body = html_header('Dashboard', True, username, user_id)
@@ -1693,7 +1738,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         if due_tasks:
             for t in due_tasks:
                 date_str = t['due_date'] if t['due_date'] else ''
-                tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'><strong>{html.escape(t['title'])}</strong> - {html.escape(t['customer_name'])}<br><small>Vervaldatum: {date_str}</small></div>"
+                cust_link = f"<a href='/customers/view?id={t['customer_id']}' style='color:#c2185b;font-weight:bold;'>{html.escape(t['customer_name'])}</a>"
+                assigned = html.escape(t['assigned_to']) if t['assigned_to'] else '-'
+                tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'>{html.escape(t['title'])}<br>{cust_link} &middot; <small style='color:#666;'>Toegewezen aan: {assigned} &middot; Vervaldatum: {date_str}</small></div>"
         else:
             tasks_html = '<p>Geen taken die binnenkort vervallen.</p>'
         body += f'''<div class="card">
@@ -2331,6 +2378,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         # ----- Interactions card -----
         # Form for new interaction
+        today_str = datetime.date.today().isoformat()
         interactions_section = f'''<form method="post" action="/interactions/add?customer_id={customer['id']}" style="margin-bottom:1rem;">
             <label>Type interactie<br>
                 <select name="interaction_type" required style="width:100%; padding:0.4rem; margin-bottom:0.3rem;">
@@ -2341,9 +2389,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <option value="meeting">Meeting</option>
                 </select>
             </label>
+            <label>Datum contact<br>
+                <input type="date" name="contact_date" value="{today_str}" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;">
+            </label>
+            <small style="display:block;margin-bottom:0.4rem;color:#666;">Pas de datum aan als het contact eerder plaatsvond — de herinnering wordt dan automatisch berekend vanaf die datum.</small>
             <label>Notitie (optioneel)<br>
                 <input type="text" name="note" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
-            <button type="submit" style="background-color:#c2185b; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Interacte toevoegen</button>
+            <button type="submit" style="background-color:#c2185b; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Interactie toevoegen</button>
         </form>'''
         # List interactions
         if interactions:
