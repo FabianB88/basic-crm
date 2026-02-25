@@ -340,6 +340,11 @@ def init_db() -> None:
             cur.execute('SELECT custom_fields FROM customers LIMIT 1')
         except sqlite3.OperationalError:
             cur.execute('ALTER TABLE customers ADD COLUMN custom_fields TEXT')
+        # Ensure relation_type column exists (intern/extern).
+        try:
+            cur.execute('SELECT relation_type FROM customers LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE customers ADD COLUMN relation_type TEXT DEFAULT 'extern'")
         # Create notes table
         cur.execute('''
             CREATE TABLE IF NOT EXISTS notes (
@@ -928,7 +933,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.respond_redirect('/login')
                 return
             search = query_params.get('q', [''])[0].strip()
-            self.render_customers(search)
+            relation_filter = query_params.get('relatie', [''])[0].strip()
+            if relation_filter not in ('intern', 'extern'):
+                relation_filter = ''
+            self.render_customers(search, relation_filter)
         elif path == '/customers/add':
             if not logged_in:
                 self.respond_redirect('/login')
@@ -945,9 +953,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 company = params.get('company', [''])[0].strip()
                 tags = params.get('tags', [''])[0].strip()
                 category = params.get('category', ['klant'])[0].strip() or 'klant'
+                relation_type = params.get('relation_type', ['extern'])[0].strip()
+                if relation_type not in ('intern', 'extern'):
+                    relation_type = 'extern'
                 # Collect dynamic field values.  Dynamic field inputs use the
                 # prefix 'cf_' followed by the field name.  Additionally, the
-                
+
                 # raw custom_fields textarea (if present) allows JSON or
                 # key=value pairs to be specified.  We merge both sources.
                 import json
@@ -983,7 +994,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     if cur.fetchone():
                         self.render_customer_form(None, error='Er bestaat al een klant met dit e‑mailadres.')
                         return
-                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, created_by, custom_fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, relation_type, created_by, custom_fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                                 (name,
                                  email_c,
                                  phone or None,
@@ -991,6 +1002,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                  company or None,
                                  tags or None,
                                  category,
+                                 relation_type,
                                  user_id,
                                  custom_fields))
                     cid_new = cur.lastrowid
@@ -1045,7 +1057,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 company = params.get('company', [''])[0].strip()
                 tags = params.get('tags', [''])[0].strip()
                 category = params.get('category', ['klant'])[0].strip() or 'klant'
-            
+                relation_type = params.get('relation_type', ['extern'])[0].strip()
+                if relation_type not in ('intern', 'extern'):
+                    relation_type = 'extern'
                 # Parse dynamic and raw custom fields.  Merge into a dict and
                 # encode as JSON for storage.  Supports JSON or key=value lines
                 # for raw custom_fields textarea.
@@ -1091,6 +1105,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                         company=?,
                                         tags=?,
                                         category=?,
+                                        relation_type=?,
                                         custom_fields=?,
                                         updated_at=CURRENT_TIMESTAMP
                                     WHERE id = ?''',
@@ -1101,6 +1116,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                  company or None,
                                  tags or None,
                                  category,
+                                 relation_type,
                                  custom_fields,
                                  cid_int))
                     conn.commit()
@@ -2396,43 +2412,58 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
 
-    def render_customers(self, search: str) -> None:
+    def render_customers(self, search: str, relation_filter: str = '') -> None:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
+            conditions = []
+            args: list = []
             if search:
-                # Build a LIKE pattern for filtering by name, email, company or tags
                 like = f'%{search}%'
-                cur.execute('''SELECT * FROM customers
-                               WHERE name LIKE ? OR email LIKE ? OR company LIKE ? OR tags LIKE ?
-                               ORDER BY name ASC''',
-                            (like, like, like, like))
-            else:
-                cur.execute('SELECT * FROM customers ORDER BY name ASC')
+                conditions.append('(name LIKE ? OR email LIKE ? OR company LIKE ? OR tags LIKE ?)')
+                args.extend([like, like, like, like])
+            if relation_filter:
+                conditions.append('relation_type = ?')
+                args.append(relation_filter)
+            where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+            cur.execute(f'SELECT * FROM customers {where} ORDER BY name ASC', args)
             customers = cur.fetchall()
         logged_in, _, username = self.parse_session()
-        # Determine user_id for nav; parse from session
         _, uid, _ = self.parse_session()
         body = html_header('Klanten', logged_in, username, uid)
         body += '<h2 class="mt-4">Klanten</h2>'
+        # Filter buttons Intern / Extern
+        q_enc = html.escape(search)
+        def _tab(label, val):
+            active = relation_filter == val
+            base_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #c2185b;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
+            style = base_style + ('background:#c2185b;color:#fff;font-weight:bold;' if active else 'color:#c2185b;')
+            href = f'/customers?relatie={val}' + (f'&q={q_enc}' if search else '')
+            return f'<a href="{href}" style="{style}">{label}</a>'
+        alle_active = not relation_filter
+        alle_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #c2185b;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
+        alle_style += 'background:#c2185b;color:#fff;font-weight:bold;' if alle_active else 'color:#c2185b;'
+        alle_href = '/customers' + (f'?q={q_enc}' if search else '')
+        filter_btns = f'<a href="{alle_href}" style="{alle_style}">Alle</a>' + _tab('Extern', 'extern') + _tab('Intern', 'intern')
         body += f'''
-        <div class="row mt-3">
-            <div class="col-md-6">
-                <form method="get" class="d-flex" role="search">
-                    <input class="form-control me-2" type="search" name="q" placeholder="Zoeken" value="{html.escape(search)}">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-top:1rem;margin-bottom:0.75rem;">
+            <div>{filter_btns}</div>
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                <form method="get" class="d-flex" role="search" style="margin:0;">
+                    {'<input type="hidden" name="relatie" value="' + relation_filter + '">' if relation_filter else ''}
+                    <input class="form-control me-2" type="search" name="q" placeholder="Zoeken" value="{q_enc}" style="min-width:180px;">
                     <button class="btn btn-outline-success" type="submit">Zoek</button>
                 </form>
-            </div>
-            <div class="col-md-6 text-end">
-                <a href="/customers/add" class="btn btn-primary">Klant/Netwerk toevoegen</a>
+                <a href="/customers/add" class="btn btn-primary">+ Toevoegen</a>
             </div>
         </div>
-        <table class="table table-striped table-hover mt-3">
+        <table class="table table-striped table-hover mt-1">
             <thead>
                 <tr>
                     <th>Naam</th>
                     <th>Bedrijf</th>
                     <th>Type</th>
+                    <th>Relatie</th>
                     <th>Tags</th>
                     <th>E‑mail</th>
                     <th>Telefoon</th>
@@ -2444,12 +2475,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         '''
         if customers:
             for cust in customers:
-                # Format tags as comma separated list or dash if none
                 tags_display = ', '.join([html.escape(tag.strip()) for tag in (cust['tags'] or '').split(',')]) if cust['tags'] else '-'
-                # Determine category (klant/netwerk) and capitalise first letter
                 category_display = (cust['category'] or 'klant').capitalize() if 'category' in cust.keys() else 'Klant'
-                # Determine creator username
-                creator = '-'  # default if no user
+                rel = (cust['relation_type'] or 'extern') if 'relation_type' in cust.keys() else 'extern'
+                rel_color = '#1565c0' if rel == 'intern' else '#555'
+                rel_label = f'<span style="background:{"#e3f0ff" if rel == "intern" else "#f0f0f0"};color:{rel_color};border-radius:12px;padding:0.15rem 0.6rem;font-size:0.82rem;font-weight:bold;">{rel.capitalize()}</span>'
+                creator = '-'
                 try:
                     if cust['created_by']:
                         u = get_user_by_id(cust['created_by'])
@@ -2461,6 +2492,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <td><a href="/customers/view?id={cust['id']}">{html.escape(cust['name'])}</a></td>
                     <td>{html.escape(cust['company'] or '-')}</td>
                     <td>{category_display}</td>
+                    <td>{rel_label}</td>
                     <td>{tags_display}</td>
                     <td>{html.escape(cust['email'])}</td>
                     <td>{html.escape(cust['phone'] or '-')}</td>
@@ -2471,8 +2503,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     </td>
                 </tr>'''
         else:
-            # Adjust colspan to match the number of columns in the table
-            body += '<tr><td colspan="8" class="text-center">Geen klanten gevonden.</td></tr>'
+            body += '<tr><td colspan="9" class="text-center">Geen klanten gevonden.</td></tr>'
         body += '</tbody></table>'
         body += html_footer()
         self.send_response(200)
@@ -2511,6 +2542,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         company = customer['company'] if customer else ''
         tags = customer['tags'] if customer else ''
         category = customer['category'] if customer else 'klant'
+        relation_type = (customer.get('relation_type') or 'extern') if customer else 'extern'
         website = customer.get('website', '') if customer else ''
         industry = customer.get('industry', '') if customer else ''
         company_size = customer.get('company_size', '') if customer else ''
@@ -2612,6 +2644,17 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                     <option value="netwerk" {'selected' if category == 'netwerk' else ''}>Netwerk</option>
                                 </select>
                             </div>
+                            <div class="mb-3">
+                                <label class="form-label">Relatie</label><br>
+                                <span class="user-pill">
+                                    <input type="radio" name="relation_type" value="extern" id="rel_extern" {'checked' if relation_type != 'intern' else ''}>
+                                    <label for="rel_extern">Extern</label>
+                                </span>
+                                <span class="user-pill">
+                                    <input type="radio" name="relation_type" value="intern" id="rel_intern" {'checked' if relation_type == 'intern' else ''}>
+                                    <label for="rel_intern">Intern</label>
+                                </span>
+                            </div>
                             {dynamic_fields_html}
                             <div class="mb-3">
                                 <label for="custom_fields" class="form-label">Extra velden (JSON of key=value per regel)</label>
@@ -2621,10 +2664,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                             <div class="mb-3">
                                 <label class="form-label"><strong>Accountmanagers</strong></label>
                                 <style>
-                                    .user-pill input[type=checkbox]{{display:none}}
+                                    .user-pill input[type=checkbox],.user-pill input[type=radio]{{display:none}}
                                     .user-pill label{{display:inline-block;padding:0.35rem 1rem;border-radius:20px;border:2px solid #c2185b;color:#c2185b;cursor:pointer;margin:0.25rem 0.25rem 0.25rem 0;font-size:0.9rem;transition:background 0.15s,color 0.15s}}
                                     .user-pill label:hover{{background:#fce4ec}}
-                                    .user-pill input[type=checkbox]:checked+label{{background:#c2185b;color:#fff;font-weight:bold}}
+                                    .user-pill input[type=checkbox]:checked+label,.user-pill input[type=radio]:checked+label{{background:#c2185b;color:#fff;font-weight:bold}}
                                 </style>
                                 <div style="margin-top:0.3rem;">
                                     {users_checkboxes_html}
@@ -2762,7 +2805,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             {f'<p><span class="icon">&#127968;</span>{html.escape(customer["address"])} </p>' if customer['address'] else ''}
             {f'<p><span class="icon">&#128188;</span>{html.escape(customer["company"])} </p>' if customer['company'] else ''}
             {tags_html}
-            <p><span class="icon">&#128221;</span>Type: {category_display}</p>
+            <p><span class="icon">&#128221;</span>Type: {category_display} &middot; {(customer.get('relation_type') or 'extern').capitalize()}</p>
             <p><span class="icon">&#128100;</span>Toegevoegd door: {creator_name}</p>
             <p><span class="icon">&#128197;</span>Aangemaakt op {customer['created_at']}</p>
             {linked_users_html}
