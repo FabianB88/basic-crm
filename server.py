@@ -234,7 +234,7 @@ def log_action(user_id: Optional[int], action: str, table: str, row_id: Optional
         row_id: The primary key of the affected row (if applicable).
         details: Optional textual description of what changed.
     """
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         cur = conn.cursor()
         cur.execute(
             'INSERT INTO audit_logs (user_id, action, table_name, row_id, details) VALUES (?, ?, ?, ?, ?)',
@@ -247,7 +247,7 @@ def log_action(user_id: Optional[int], action: str, table: str, row_id: Optional
 # ---------------------------------------------------------------------------
 def users_exist() -> bool:
     """Return True if at least one user record exists in the database."""
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         cur = conn.cursor()
         cur.execute('SELECT COUNT(*) FROM users')
         return cur.fetchone()[0] > 0
@@ -266,7 +266,7 @@ def is_admin(user_id: int) -> bool:
 
 def init_db() -> None:
     """Initialize the SQLite database if it doesn't already exist."""
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         cur = conn.cursor()
         # Enable foreign key support
         cur.execute('PRAGMA foreign_keys = ON;')
@@ -467,7 +467,7 @@ def init_db() -> None:
 
 def get_user_by_username_or_email(identifier: str) -> Optional[Dict[str, Any]]:
     """Retrieve a user record by username or email."""
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute(
@@ -479,7 +479,7 @@ def get_user_by_username_or_email(identifier: str) -> Optional[Dict[str, Any]]:
 
 
 def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute('SELECT * FROM users WHERE id = ?', (user_id,))
@@ -494,7 +494,7 @@ def get_custom_field_definitions() -> List[sqlite3.Row]:
     add or remove these definitions via the /fields page.  The order is
     determined by the `id` column (insertion order).
     """
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute('SELECT * FROM customer_fields ORDER BY id ASC')
@@ -503,7 +503,7 @@ def get_custom_field_definitions() -> List[sqlite3.Row]:
 
 def get_linked_user_ids(customer_id: int) -> List[int]:
     """Return the list of user IDs linked to a customer."""
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         cur = conn.cursor()
         cur.execute('SELECT user_id FROM customer_users WHERE customer_id = ?', (customer_id,))
         return [row[0] for row in cur.fetchall()]
@@ -517,7 +517,7 @@ def check_and_create_reminders() -> None:
     - Contact logged 2 months ago → reminder due in 1 month.
     - New contact logged today  → existing reminder pushed forward 90 days.
     """
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute('''
@@ -610,7 +610,7 @@ def _reminder_loop() -> None:
 
 def create_user(username: str, email: str, password: str) -> Tuple[bool, str]:
     """Attempt to create a new user. Returns (success, message)."""
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
         cur = conn.cursor()
         # Check uniqueness
         cur.execute('SELECT id FROM users WHERE username = ? OR email = ?', (username, email))
@@ -1001,7 +1001,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if not name or not email_c:
                     self.render_customer_form(None, error='Naam en e‑mail zijn verplicht.')
                     return
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     cur.execute('SELECT id FROM customers WHERE email = ?', (email_c,))
                     if cur.fetchone():
@@ -1025,7 +1025,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # Save customer-user links (many-to-many)
                 linked_user_ids = params.get('linked_users', [])
                 if linked_user_ids:
-                    with sqlite3.connect(DB_PATH) as conn2:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn2:
                         cur2 = conn2.cursor()
                         for uid_str in linked_user_ids:
                             try:
@@ -1102,7 +1102,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     customer = self.get_customer(cid_int)
                     self.render_customer_form(customer, error='Naam en e‑mail zijn verplicht.')
                     return
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     # ensure email uniqueness among others
                     cur.execute('SELECT id FROM customers WHERE email = ? AND id != ?', (email_c, cid_int))
@@ -1137,7 +1137,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 log_action(user_id, 'update', 'customers', cid_int, f"name={name}")
                 # Update customer-user links: replace existing with new selection
                 linked_user_ids = params.get('linked_users', [])
-                with sqlite3.connect(DB_PATH) as conn2:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn2:
                     cur2 = conn2.cursor()
                     cur2.execute('DELETE FROM customer_users WHERE customer_id = ?', (cid_int,))
                     for uid_str in linked_user_ids:
@@ -1177,7 +1177,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             except ValueError:
                 self.respond_not_found()
                 return
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 cur = conn.cursor()
                 # Delete notes first (ON DELETE CASCADE would handle this too)
                 cur.execute('DELETE FROM notes WHERE customer_id = ?', (cid_int,))
@@ -1209,7 +1209,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 except ValueError:
                     pass
             if cid_list and action:
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     if action in ('intern', 'extern'):
                         cur.executemany('UPDATE customers SET relation_type=? WHERE id=?',
@@ -1260,7 +1260,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 params = urllib.parse.parse_qs(data)
                 content = params.get('content', [''])[0].strip()
                 if content:
-                    with sqlite3.connect(DB_PATH) as conn:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
                         cur = conn.cursor()
                         cur.execute('''INSERT INTO notes (content, customer_id, user_id) VALUES (?, ?, ?)''',
                                     (content, cid_int, user_id))
@@ -1296,7 +1296,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             except ValueError:
                 self.respond_not_found()
                 return
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 cur = conn.cursor()
                 cur.execute('DELETE FROM notes WHERE id = ?', (nid_int,))
                 conn.commit()
@@ -1341,7 +1341,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.render_customer_detail(customer, user_id, username,
                                                 task_error='Titel is verplicht.')
                     return
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     cur.execute('''INSERT INTO tasks (title, description, due_date, customer_id, user_id) VALUES (?, ?, ?, ?, ?)''',
                                 (title, description or None, due_date or None, cid_int, assigned_uid))
@@ -1377,7 +1377,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.respond_not_found()
                 return
             # Fetch task details
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 cur.execute('''
@@ -1404,7 +1404,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.render_resolve_form(tid_int, task_data, user_id, username, from_page, error='Kies een contactmoment type.')
                     return
                 cid_int = task_data['customer_id']
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     # Mark task complete
                     cur.execute('UPDATE tasks SET status = ? WHERE id = ?', ('completed', tid_int))
@@ -1444,7 +1444,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             except ValueError:
                 self.respond_not_found()
                 return
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 cur = conn.cursor()
                 cur.execute('UPDATE tasks SET status = ? WHERE id = ?', ('completed', tid_int))
                 conn.commit()
@@ -1469,7 +1469,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             except ValueError:
                 self.respond_not_found()
                 return
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 cur = conn.cursor()
                 cur.execute('DELETE FROM tasks WHERE id = ?', (tid_int,))
                 conn.commit()
@@ -1505,7 +1505,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     customer = self.get_customer(cid_int)
                     self.render_customer_detail(customer, user_id, username, task_error='Interactietype is verplicht.')
                     return
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     cur.execute(
                         'INSERT INTO interactions (interaction_type, note, contact_date, customer_id, user_id) VALUES (?, ?, ?, ?, ?)',
@@ -1530,7 +1530,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             # Prepare CSV using csv module to ensure proper escaping
             import csv, io
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 cur.execute('SELECT c.*, u.username AS creator_name FROM customers c LEFT JOIN users u ON c.created_by = u.id ORDER BY c.id ASC')
@@ -1560,7 +1560,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 filter_uid = int(filter_uid_raw) if filter_uid_raw else None
             except ValueError:
                 filter_uid = None
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 conditions = ["1=1"]
@@ -1647,7 +1647,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.respond_redirect('/login')
                 return
             import csv, io as _io
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 cur.execute('''
@@ -1683,7 +1683,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 filter_uid = int(filter_uid_raw) if filter_uid_raw else None
             except ValueError:
                 filter_uid = None
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 if filter_uid:
@@ -1756,7 +1756,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.respond_redirect('/dashboard')
                 return
             # Fetch logs
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 cur.execute('''SELECT a.*, u.username FROM audit_logs a LEFT JOIN users u ON a.user_id = u.id ORDER BY a.created_at DESC LIMIT 200''')
@@ -1768,7 +1768,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.respond_redirect('/dashboard')
                 return
             # Fetch users
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 cur.execute('SELECT id, username, email, created_at FROM users ORDER BY id ASC')
@@ -1813,7 +1813,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # Protect the admin account from deletion
                 self.respond_redirect('/users')
                 return
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 cur = conn.cursor()
                 cur.execute('DELETE FROM users WHERE id = ?', (uid_del_int,))
                 conn.commit()
@@ -1846,7 +1846,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.respond_redirect('/dashboard')
                 return
             # Show list of custom field definitions and add form
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 cur.execute('SELECT * FROM customer_fields ORDER BY id ASC')
@@ -1863,7 +1863,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             except Exception:
                 fid_int = None
             if fid_int:
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     cur.execute('DELETE FROM customer_fields WHERE id = ?', (fid_int,))
                     conn.commit()
@@ -1932,7 +1932,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # Insert rows into DB
                 imported = 0
                 errors: List[str] = []
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     for row in rows:
                         # Remove extracted JSON before insertion
@@ -1995,7 +1995,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 flabel = params.get('label', [''])[0].strip()
                 if not fname or not flabel:
                     # re-render with error
-                    with sqlite3.connect(DB_PATH) as conn:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
                         conn.row_factory = sqlite3.Row
                         cur = conn.cursor()
                         cur.execute('SELECT * FROM customer_fields ORDER BY id ASC')
@@ -2003,7 +2003,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.render_fields_list(fields, username, error='Naam en label zijn verplicht.')
                     return
                 # insert
-                with sqlite3.connect(DB_PATH) as conn:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     try:
                         cur.execute('INSERT INTO customer_fields (name, label) VALUES (?, ?)', (fname, flabel))
@@ -2013,7 +2013,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         log_action(user_id, 'create', 'customer_fields', fid, f"name={fname}")
                     except sqlite3.IntegrityError:
                         # duplicate name
-                        with sqlite3.connect(DB_PATH) as conn2:
+                        with sqlite3.connect(DB_PATH, timeout=10) as conn2:
                             conn2.row_factory = sqlite3.Row
                             cur2 = conn2.cursor()
                             cur2.execute('SELECT * FROM customer_fields ORDER BY id ASC')
@@ -2029,7 +2029,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.respond_redirect('/dashboard')
                 return
             # Fetch statistics: customers by category, tasks by status, interactions by type
-            with sqlite3.connect(DB_PATH) as conn:
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
                 # Customers by category
@@ -2122,7 +2122,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
     def render_dashboard(self, user_id: int, username: str) -> None:
         # Count customers, get recent notes and tasks due soon
         this_month = datetime.date.today().strftime('%Y-%m')
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute('SELECT COUNT(*) FROM customers')
@@ -2358,7 +2358,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
     def render_user_profile(self, profile_user: Dict[str, Any], viewer_id: int, viewer_username: str) -> None:
         """Render the personal dashboard for a specific user account."""
         pid = profile_user['id']
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             # Open tasks assigned to this user
@@ -2652,7 +2652,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body.encode('utf-8'))
 
     def render_customers(self, search: str, relation_filter: str = '', sort_col: str = 'name', sort_dir: str = 'asc') -> None:
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             conditions = []
@@ -2837,7 +2837,7 @@ function bulkAction(action){
         self.wfile.write(body.encode('utf-8'))
 
     def get_customer(self, customer_id: int) -> Optional[Dict[str, Any]]:
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute('SELECT * FROM customers WHERE id = ?', (customer_id,))
@@ -2850,7 +2850,7 @@ function bulkAction(action){
         # Determine user id for navigation
         logged, uid, _ = self.parse_session()
         # Load all users and currently linked users for this customer
-        with sqlite3.connect(DB_PATH) as conn_u:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn_u:
             conn_u.row_factory = sqlite3.Row
             cur_u = conn_u.cursor()
             cur_u.execute('SELECT id, username FROM users ORDER BY username ASC')
@@ -3020,7 +3020,7 @@ function bulkAction(action){
     def render_customer_detail(self, customer: Dict[str, Any], user_id: int, username: str, task_error: str | None = None) -> None:
         """Render the detail view for a single customer, including notes and tasks."""
         # Fetch notes and tasks for this customer
-        with sqlite3.connect(DB_PATH) as conn:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             # Notes
