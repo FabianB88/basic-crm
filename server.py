@@ -254,14 +254,14 @@ def users_exist() -> bool:
 
 
 def is_admin(user_id: int) -> bool:
-    """Simple admin check: treat the very first user (id=1) as the admin.
-
-    This function can be extended to support a proper role system (e.g.,
-    storing a role column in the users table).  For now we assume the
-    account created first is the administrator and is allowed to add new
-    users.
-    """
-    return user_id == 1
+    """Check if user is admin via the is_admin column. User id=1 is always admin."""
+    if user_id == 1:
+        return True
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        cur = conn.cursor()
+        cur.execute('SELECT is_admin FROM users WHERE id = ?', (user_id,))
+        row = cur.fetchone()
+        return bool(row and row[0])
 
 
 def init_db() -> None:
@@ -280,6 +280,12 @@ def init_db() -> None:
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         ''')
+        # Ensure is_admin column exists on users table
+        try:
+            cur.execute('SELECT is_admin FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0')
+            cur.execute('UPDATE users SET is_admin = 1 WHERE id = 1')
         # Create customers table.  Includes optional tags column to allow
         # categorisation of customers (comma separated values).  If the
         # table already exists but the tags column is missing, add it.
@@ -1771,9 +1777,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
-                cur.execute('SELECT id, username, email, created_at FROM users ORDER BY id ASC')
+                cur.execute('SELECT id, username, email, created_at, is_admin FROM users ORDER BY id ASC')
                 users = cur.fetchall()
-            self.render_user_list(users, username)
+            self.render_user_list(users, username, user_id)
         elif path == '/users/add':
             # Admin can add a new user via this route.  GET displays form, POST processes.
             if not logged_in or not is_admin(user_id):
@@ -1818,6 +1824,29 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 cur.execute('DELETE FROM users WHERE id = ?', (uid_del_int,))
                 conn.commit()
             log_action(user_id, 'delete', 'users', uid_del_int)
+            self.respond_redirect('/users')
+        elif path == '/users/toggle-admin':
+            # Toggle admin status for a user. Only admin can do this. Cannot remove from id=1.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            uid_toggle = query_params.get('id', [None])[0]
+            try:
+                uid_toggle_int = int(uid_toggle) if uid_toggle else None
+            except ValueError:
+                uid_toggle_int = None
+            if not uid_toggle_int or uid_toggle_int == 1:
+                self.respond_redirect('/users')
+                return
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                cur = conn.cursor()
+                cur.execute('SELECT is_admin FROM users WHERE id = ?', (uid_toggle_int,))
+                row = cur.fetchone()
+                if row:
+                    new_val = 0 if row[0] else 1
+                    cur.execute('UPDATE users SET is_admin = ? WHERE id = ?', (new_val, uid_toggle_int))
+                    conn.commit()
+                    log_action(user_id, 'update', 'users', uid_toggle_int, f'is_admin={new_val}')
             self.respond_redirect('/users')
         elif path == '/users/profile':
             # Personal dashboard: show tasks, customers and recent interactions for one user.
@@ -2248,17 +2277,24 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body.encode('utf-8'))
 
     # Admin user management views
-    def render_user_list(self, users: List[sqlite3.Row], username: str) -> None:
+    def render_user_list(self, users: List[sqlite3.Row], username: str, current_user_id: int = 1) -> None:
         """Render a list of users for admin."""
-        # The admin user id is always 1.  Pass it so that the nav can include the Gebruikers link.
-        body = html_header('Gebruikersbeheer', True, username, 1)
+        body = html_header('Gebruikersbeheer', True, username, current_user_id)
         body += '<h2 class="mt-4">Gebruikers</h2>'
         body += '<div class="card">'
         body += '<div class="section-title">Huidige gebruikers</div>'
         if users:
             for user in users:
-                is_admin_user = user['id'] == 1
-                delete_btn = '' if is_admin_user else f'<a href="/users/delete?id={user["id"]}" class="btn btn-sm btn-danger" style="float:right;margin-left:0.5rem;" onclick="return confirm(\'Weet je zeker dat je {html.escape(user["username"])} wilt verwijderen?\');">Verwijder</a>'
+                is_admin_user = bool(user['id'] == 1 or user['is_admin'])
+                is_protected = user['id'] == 1  # id=1 can never be demoted
+                delete_btn = '' if is_protected else f'<a href="/users/delete?id={user["id"]}" class="btn btn-sm btn-danger" style="margin-left:0.5rem;" onclick="return confirm(\'Weet je zeker dat je {html.escape(user["username"])} wilt verwijderen?\');">Verwijder</a>'
+                if not is_protected:
+                    if is_admin_user:
+                        toggle_btn = f'<a href="/users/toggle-admin?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Admin-rechten verwijderen van {html.escape(user["username"])}?\');">Verwijder admin</a>'
+                    else:
+                        toggle_btn = f'<a href="/users/toggle-admin?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#c2185b;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} admin maken?\');">Maak admin</a>'
+                else:
+                    toggle_btn = ''
                 body += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <strong>{html.escape(user['username'])}</strong> ({html.escape(user['email'])})
@@ -2267,6 +2303,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     </div>
                     <div>
                         <a href="/users/profile?id={user['id']}" class="btn btn-sm btn-secondary">Profiel</a>
+                        {toggle_btn}
                         {delete_btn}
                     </div>
                 </div>'''
