@@ -1212,9 +1212,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 with sqlite3.connect(DB_PATH) as conn:
                     cur = conn.cursor()
                     if action in ('intern', 'extern'):
-                        for cid_b in cid_list:
-                            cur.execute('UPDATE customers SET relation_type=? WHERE id=?', (action, cid_b))
-                            log_action(user_id, 'update', 'customers', cid_b, f'bulk relation_type={action}')
+                        cur.executemany('UPDATE customers SET relation_type=? WHERE id=?',
+                                        [(action, cid_b) for cid_b in cid_list])
                     elif action == 'add_tag':
                         tag_val = params.get('bulk_tag', [''])[0].strip()
                         if tag_val:
@@ -1225,21 +1224,21 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                 tags_list = [t.strip() for t in existing.split(',') if t.strip()]
                                 if tag_val not in tags_list:
                                     tags_list.append(tag_val)
-                                cur.execute('UPDATE customers SET tags=? WHERE id=?', (','.join(tags_list), cid_b))
-                                log_action(user_id, 'update', 'customers', cid_b, f'bulk add_tag={tag_val}')
+                                cur.execute('UPDATE customers SET tags=? WHERE id=?',
+                                            (','.join(tags_list), cid_b))
                     elif action == 'link_user':
                         uid_val = params.get('bulk_user_id', [''])[0].strip()
                         if uid_val.isdigit():
                             uid_int_b = int(uid_val)
-                            for cid_b in cid_list:
-                                try:
-                                    cur.execute('INSERT OR IGNORE INTO customer_users (customer_id, user_id) VALUES (?,?)', (cid_b, uid_int_b))
-                                    log_action(user_id, 'create', 'customer_users', cid_b, f'bulk link user={uid_int_b}')
-                                except Exception:
-                                    pass
+                            cur.executemany(
+                                'INSERT OR IGNORE INTO customer_users (customer_id, user_id) VALUES (?,?)',
+                                [(cid_b, uid_int_b) for cid_b in cid_list]
+                            )
                     conn.commit()
-                # Run reminder recalculation in background so it never blocks the HTTP response
-                threading.Thread(target=check_and_create_reminders, daemon=True).start()
+                # One summary audit log entry instead of one per row
+                log_action(user_id, 'update', 'customers', None,
+                           f'bulk {action} on {len(cid_list)} customers')
+                # Reminders worden bijgewerkt door de dagelijkse scheduler (niet hier — te zwaar)
             self.respond_redirect('/customers')
         elif path == '/customers/view':
             if not logged_in:
@@ -2819,15 +2818,14 @@ function bulkAction(action){
     document.getElementById(\'bulk-tag-hidden\').value=document.getElementById(\'bulk-tag-input\').value;
     document.getElementById(\'bulk-user-hidden\').value=document.getElementById(\'bulk-user-select\').value;
     var n=checked.length;
-    var secs=Math.max(2,Math.ceil(n*0.3));
     var labels={intern:\'Instellen als Intern\',extern:\'Instellen als Extern\',add_tag:\'Tag toevoegen\',link_user:\'Gebruiker koppelen\'};
     document.getElementById(\'overlay-title\').textContent=(labels[action]||\'Bezig...\')+\' voor \'+n+\' klant\'+(n===1?\'\':\'en\');
-    document.getElementById(\'overlay-time\').textContent=\'Geschatte tijd: ~\'+secs+\' seconde\'+(secs===1?\'\':\'n\')+\' — pagina herlaadt automatisch\';
+    document.getElementById(\'overlay-time\').textContent=\'Pagina herlaadt automatisch zodra het klaar is.\';
     var overlay=document.getElementById(\'bulk-overlay\');
     overlay.style.display=\'flex\';
     var bar=document.getElementById(\'overlay-bar\');
-    var start=Date.now();var dur=secs*1000;
-    function tick(){var pct=Math.min(95,((Date.now()-start)/dur)*100);bar.style.width=pct+\'%\';if(pct<95)setTimeout(tick,100);}
+    var start=Date.now();
+    function tick(){var pct=Math.min(90,((Date.now()-start)/3000)*100);bar.style.width=pct+\'%\';if(pct<90)setTimeout(tick,100);}
     tick();
     document.getElementById(\'bulk-form\').submit();
 }
