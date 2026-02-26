@@ -2668,7 +2668,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
             safe_col = sort_col if sort_col in ('name','company','category','relation_type','created_at') else 'name'
             safe_dir = 'ASC' if sort_dir == 'asc' else 'DESC'
-            cur.execute(f'SELECT * FROM customers {where} ORDER BY LOWER({safe_col}) {safe_dir}', args)
+            order_expr = safe_col if safe_col == 'created_at' else f'LOWER({safe_col})'
+            cur.execute(f'SELECT * FROM customers {where} ORDER BY {order_expr} {safe_dir}', args)
             customers = cur.fetchall()
             cur.execute('SELECT id, username FROM users ORDER BY username ASC')
             all_users_bulk = cur.fetchall()
@@ -2752,6 +2753,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <th>E‑mail</th>
                     <th>Telefoon</th>
                     <th>Toegevoegd door</th>
+                    {_th('Datum','created_at')}
                     <th class="text-end">Acties</th>
                 </tr>
             </thead>
@@ -2782,29 +2784,52 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <td>{html.escape(cust['email'])}</td>
                     <td>{html.escape(cust['phone'] or '-')}</td>
                     <td>{creator}</td>
+                    <td style="color:#888;font-size:0.85rem;">{(cust['created_at'] or '')[:10]}</td>
                     <td class="text-end">
                         <a href="/customers/edit?id={cust['id']}" class="btn btn-sm btn-secondary">Bewerk</a>
                         <a href="/customers/delete?id={cust['id']}" class="btn btn-sm btn-danger" onclick="return confirm('Weet je zeker dat je deze klant wilt verwijderen?');">Verwijder</a>
                     </td>
                 </tr>'''
         else:
-            body += '<tr><td colspan="10" class="text-center">Geen klanten gevonden.</td></tr>'
+            body += '<tr><td colspan="11" class="text-center">Geen klanten gevonden.</td></tr>'
         body += '</tbody></table></form>'
-        body += '''<script>
+        body += '''<div id="bulk-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;padding:2rem 2.5rem;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.3);min-width:280px;">
+        <div style="font-size:2rem;margin-bottom:0.5rem;">&#9881;</div>
+        <div style="font-size:1.1rem;font-weight:bold;margin-bottom:0.5rem;" id="overlay-title">Bezig...</div>
+        <div style="color:#666;font-size:0.9rem;margin-bottom:1rem;" id="overlay-msg">Even geduld, de server verwerkt je actie...</div>
+        <div style="background:#eee;border-radius:4px;height:8px;overflow:hidden;">
+            <div id="overlay-bar" style="background:#c2185b;height:8px;width:0%;transition:width 0.4s linear;border-radius:4px;"></div>
+        </div>
+        <div style="margin-top:0.6rem;font-size:0.85rem;color:#888;" id="overlay-time"></div>
+    </div>
+</div>
+<script>
 function toggleAll(cb){document.querySelectorAll('.row-cb').forEach(c=>c.checked=cb.checked);updateBulk();}
 function updateBulk(){
     var checked=document.querySelectorAll('.row-cb:checked').length;
     var bar=document.getElementById('bulk-bar');
-    document.getElementById('bulk-count').textContent=checked+' geselecteerd';
-    bar.style.display=checked>0?'flex':'none';
+    document.getElementById('bulk-count').textContent=checked+\' geselecteerd\';
+    bar.style.display=checked>0?\'flex\':\'none\';
 }
 function bulkAction(action){
-    var checked=document.querySelectorAll('.row-cb:checked');
-    if(!checked.length){alert('Selecteer eerst klanten.');return;}
-    document.getElementById('bulk-action-input').value=action;
-    document.getElementById('bulk-tag-hidden').value=document.getElementById('bulk-tag-input').value;
-    document.getElementById('bulk-user-hidden').value=document.getElementById('bulk-user-select').value;
-    document.getElementById('bulk-form').submit();
+    var checked=document.querySelectorAll(\'.row-cb:checked\');
+    if(!checked.length){alert(\'Selecteer eerst klanten.\');return;}
+    document.getElementById(\'bulk-action-input\').value=action;
+    document.getElementById(\'bulk-tag-hidden\').value=document.getElementById(\'bulk-tag-input\').value;
+    document.getElementById(\'bulk-user-hidden\').value=document.getElementById(\'bulk-user-select\').value;
+    var n=checked.length;
+    var secs=Math.max(2,Math.ceil(n*0.3));
+    var labels={intern:\'Instellen als Intern\',extern:\'Instellen als Extern\',add_tag:\'Tag toevoegen\',link_user:\'Gebruiker koppelen\'};
+    document.getElementById(\'overlay-title\').textContent=(labels[action]||\'Bezig...\')+\' voor \'+n+\' klant\'+(n===1?\'\':\'en\');
+    document.getElementById(\'overlay-time\').textContent=\'Geschatte tijd: ~\'+secs+\' seconde\'+(secs===1?\'\':\'n\')+\' — pagina herlaadt automatisch\';
+    var overlay=document.getElementById(\'bulk-overlay\');
+    overlay.style.display=\'flex\';
+    var bar=document.getElementById(\'overlay-bar\');
+    var start=Date.now();var dur=secs*1000;
+    function tick(){var pct=Math.min(95,((Date.now()-start)/dur)*100);bar.style.width=pct+\'%\';if(pct<95)setTimeout(tick,100);}
+    tick();
+    document.getElementById(\'bulk-form\').submit();
 }
 </script>'''
         body += html_footer()
