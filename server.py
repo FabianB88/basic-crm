@@ -1238,10 +1238,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                 except Exception:
                                     pass
                     conn.commit()
-                try:
-                    check_and_create_reminders()
-                except Exception:
-                    pass
+                # Run reminder recalculation in background so it never blocks the HTTP response
+                threading.Thread(target=check_and_create_reminders, daemon=True).start()
             self.respond_redirect('/customers')
         elif path == '/customers/view':
             if not logged_in:
