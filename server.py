@@ -4582,7 +4582,7 @@ function bulkAction(action){
                 self.respond_redirect('/comm/board')
                 return
             cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.priority, ct.tags,
-                           cg.title AS goal_title
+                           ct.reminder_note, cg.title AS goal_title
                            FROM comm_tasks ct LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
                            WHERE ct.assigned_to = ? AND ct.status NOT IN ('klaar','archief')
                            ORDER BY CASE ct.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
@@ -4709,9 +4709,9 @@ function bulkAction(action){
                            WHERE ct.status NOT IN ('klaar','archief') AND ct.due_date IS NOT NULL
                            AND ct.due_date <= ? ORDER BY ct.due_date ASC''', (horizon,))
             upcoming_tasks = cur.fetchall()
-            cur.execute('''SELECT id, title, event_date, event_type FROM comm_dates
-                           WHERE event_date >= ? AND event_date <= ?
-                           ORDER BY event_date ASC''', (today_iso, horizon))
+            cur.execute('''SELECT id, title, date AS event_date, type AS event_type FROM comm_dates
+                           WHERE date >= ? AND date <= ?
+                           ORDER BY date ASC''', (today_iso, horizon))
             upcoming_dates = cur.fetchall()
             cur.execute('''SELECT cc.id, cc.title, cc.platform, cc.publish_date, cc.status,
                            u.username AS assigned_to_name
