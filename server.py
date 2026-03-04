@@ -4187,8 +4187,9 @@ function bulkAction(action){
                 LEFT JOIN users cb ON ct.created_by = cb.id
                 LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
                 WHERE ct.status != 'archief'
-                ORDER BY CASE ct.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-                         COALESCE(ct.due_date, '9999-12-31') ASC, ct.created_at DESC
+                ORDER BY COALESCE(ct.due_date, '9999-12-31') ASC,
+                         CASE ct.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                         ct.created_at DESC
             ''')
             all_tasks = cur.fetchall()
             cur.execute('''
@@ -4369,10 +4370,23 @@ function bulkAction(action){
 (function() {
     var dragging = null;
 
+    function getInsertPoint(col, y) {
+        var cards = Array.prototype.slice.call(col.querySelectorAll('.comm-card')).filter(function(c) { return c !== dragging; });
+        var result = null;
+        var closest = Infinity;
+        cards.forEach(function(c) {
+            var box = c.getBoundingClientRect();
+            var mid = box.top + box.height / 2;
+            var dist = y - mid;
+            if (dist < 0 && -dist < closest) { closest = -dist; result = c; }
+        });
+        return result;
+    }
+
     document.querySelectorAll('.comm-card').forEach(function(card) {
         card.addEventListener('dragstart', function(e) {
             dragging = card;
-            setTimeout(function() { card.style.opacity = '0.45'; }, 0);
+            setTimeout(function() { card.style.opacity = '0.4'; }, 0);
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', card.dataset.taskId);
         });
@@ -4392,31 +4406,46 @@ function bulkAction(action){
             e.dataTransfer.dropEffect = 'move';
             col.style.background = '#dceeff';
             col.style.outline = '2px dashed #1565c0';
+            if (!dragging) return;
+            // Live preview: insert card at cursor position
+            var emptyEl = col.querySelector('.comm-empty');
+            if (emptyEl) emptyEl.style.display = 'none';
+            var after = getInsertPoint(col, e.clientY);
+            if (after) {
+                col.insertBefore(dragging, after);
+            } else {
+                // Append before first non-card child after cards (e.g. archive button div)
+                var nonCard = Array.prototype.slice.call(col.children).filter(function(el) {
+                    return !el.classList.contains('comm-card') && !el.classList.contains('comm-empty');
+                });
+                var anchor = nonCard.find(function(el) { return el.tagName === 'DIV' && el.querySelector('a'); });
+                if (anchor) { col.insertBefore(dragging, anchor); } else { col.appendChild(dragging); }
+            }
         });
         col.addEventListener('dragleave', function(e) {
             if (!col.contains(e.relatedTarget)) {
                 col.style.background = '#f0f0f0';
                 col.style.outline = '';
+                var emptyEl = col.querySelector('.comm-empty');
+                if (emptyEl) emptyEl.style.display = '';
             }
         });
         col.addEventListener('drop', function(e) {
             e.preventDefault();
             col.style.background = '#f0f0f0';
             col.style.outline = '';
+            var emptyEl = col.querySelector('.comm-empty');
+            if (emptyEl) emptyEl.style.display = '';
             if (!dragging) return;
             var taskId = dragging.dataset.taskId;
             var newStatus = col.dataset.status;
             var oldStatus = dragging.dataset.status;
-            if (newStatus === oldStatus) return;
-            // Optimistic UI: move card immediately
-            var emptyEl = col.querySelector('.comm-empty');
-            if (emptyEl) emptyEl.remove();
-            col.appendChild(dragging);
             dragging.dataset.status = newStatus;
-            // Send to server
-            fetch('/comm/tasks/move?id=' + taskId + '&status=' + newStatus)
-                .then(function(r) { if (!r.ok) window.location.reload(); })
-                .catch(function() { window.location.reload(); });
+            if (newStatus !== oldStatus) {
+                fetch('/comm/tasks/move?id=' + taskId + '&status=' + newStatus)
+                    .then(function(r) { if (!r.ok) window.location.reload(); })
+                    .catch(function() { window.location.reload(); });
+            }
         });
     });
 })();
