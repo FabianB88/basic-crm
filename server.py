@@ -438,6 +438,33 @@ def init_db() -> None:
                 FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
             );
         ''')
+        # Add priority column to comm_tasks if missing
+        try:
+            cur.execute('SELECT priority FROM comm_tasks LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE comm_tasks ADD COLUMN priority TEXT DEFAULT 'medium'")
+        # Add tags column to comm_tasks if missing
+        try:
+            cur.execute('SELECT tags FROM comm_tasks LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE comm_tasks ADD COLUMN tags TEXT')
+        # Add reminder_note column to comm_tasks if missing
+        try:
+            cur.execute('SELECT reminder_note FROM comm_tasks LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE comm_tasks ADD COLUMN reminder_note TEXT')
+        # Comments on comm tasks
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS comm_task_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (task_id) REFERENCES comm_tasks(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
         # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
         # a type, an optional note and a timestamp.  Interactions are
@@ -2213,8 +2240,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 assigned_to_raw = params.get('assigned_to', [''])[0].strip()
                 goal_id_raw = params.get('goal_id', [''])[0].strip()
                 status = params.get('status', ['backlog'])[0].strip()
+                priority = params.get('priority', ['medium'])[0].strip()
+                tags = params.get('tags', [''])[0].strip() or None
+                reminder_note = params.get('reminder_note', [''])[0].strip() or None
                 if status not in ('backlog', 'bezig', 'klaar'):
                     status = 'backlog'
+                if priority not in ('hoog', 'medium', 'laag'):
+                    priority = 'medium'
                 try:
                     assigned_to = int(assigned_to_raw) if assigned_to_raw else None
                 except ValueError:
@@ -2227,12 +2259,202 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     with sqlite3.connect(DB_PATH, timeout=10) as conn:
                         cur = conn.cursor()
                         cur.execute(
-                            'INSERT INTO comm_tasks (title, description, status, due_date, assigned_to, created_by, goal_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                            (title, description or None, status, due_date, assigned_to, user_id, goal_id))
+                            'INSERT INTO comm_tasks (title, description, status, due_date, assigned_to, created_by, goal_id, priority, tags, reminder_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                            (title, description or None, status, due_date, assigned_to, user_id, goal_id, priority, tags, reminder_note))
                         conn.commit()
                 self.respond_redirect('/comm/board')
             else:
                 self.render_comm_task_form(user_id, username)
+        elif path == '/comm/tasks/edit':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            tid = query_params.get('id', [None])[0]
+            try:
+                tid_int = int(tid) if tid else None
+            except ValueError:
+                tid_int = None
+            if not tid_int:
+                self.respond_redirect('/comm/board')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                due_date = params.get('due_date', [''])[0].strip() or None
+                assigned_to_raw = params.get('assigned_to', [''])[0].strip()
+                goal_id_raw = params.get('goal_id', [''])[0].strip()
+                status = params.get('status', ['backlog'])[0].strip()
+                priority = params.get('priority', ['medium'])[0].strip()
+                tags = params.get('tags', [''])[0].strip() or None
+                reminder_note = params.get('reminder_note', [''])[0].strip() or None
+                if status not in ('backlog', 'bezig', 'klaar'):
+                    status = 'backlog'
+                if priority not in ('hoog', 'medium', 'laag'):
+                    priority = 'medium'
+                try:
+                    assigned_to = int(assigned_to_raw) if assigned_to_raw else None
+                except ValueError:
+                    assigned_to = None
+                try:
+                    goal_id = int(goal_id_raw) if goal_id_raw else None
+                except ValueError:
+                    goal_id = None
+                if title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('''UPDATE comm_tasks SET title=?, description=?, status=?, due_date=?,
+                            assigned_to=?, goal_id=?, priority=?, tags=?, reminder_note=? WHERE id=?''',
+                            (title, description or None, status, due_date, assigned_to, goal_id, priority, tags, reminder_note, tid_int))
+                        conn.commit()
+                self.respond_redirect('/comm/board')
+            else:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT * FROM comm_tasks WHERE id = ?', (tid_int,))
+                    task = cur.fetchone()
+                    cur.execute("SELECT id, username FROM users WHERE is_comm=1 OR is_admin=1 OR id=1 ORDER BY username")
+                    comm_members = cur.fetchall()
+                    cur.execute("SELECT id, title FROM comm_goals WHERE status='actief' ORDER BY title")
+                    active_goals = cur.fetchall()
+                if not task:
+                    self.respond_redirect('/comm/board')
+                    return
+                self.render_comm_task_edit(task, comm_members, active_goals, user_id, username)
+        elif path == '/comm/tasks/comment':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                tid_raw = params.get('task_id', [''])[0].strip()
+                content = params.get('content', [''])[0].strip()
+                try:
+                    tid_int = int(tid_raw) if tid_raw else None
+                except ValueError:
+                    tid_int = None
+                if tid_int and content:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('INSERT INTO comm_task_comments (task_id, user_id, content) VALUES (?, ?, ?)',
+                                    (tid_int, user_id, content))
+                        conn.commit()
+                self.respond_redirect('/comm/board')
+        elif path == '/comm/tasks/archive-done':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE comm_tasks SET status = 'archief' WHERE status = 'klaar'")
+                conn.commit()
+            self.respond_redirect('/comm/board')
+        elif path == '/comm/archived':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_comm_archived(user_id, username)
+        elif path == '/comm/week':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_comm_week(user_id, username)
+        elif path == '/comm/profile':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            profile_id_raw = query_params.get('id', [str(user_id)])[0]
+            try:
+                profile_id = int(profile_id_raw)
+            except ValueError:
+                profile_id = user_id
+            if profile_id != user_id and not is_admin(user_id):
+                self.respond_redirect('/comm/profile')
+                return
+            self.render_comm_profile(profile_id, user_id, username)
+        elif path == '/comm/search':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            q = query_params.get('q', [''])[0].strip()
+            filter_uid_raw = query_params.get('uid', [''])[0]
+            filter_status = query_params.get('status', [''])[0].strip()
+            filter_priority = query_params.get('priority', [''])[0].strip()
+            try:
+                filter_uid = int(filter_uid_raw) if filter_uid_raw else None
+            except ValueError:
+                filter_uid = None
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                conds = ['ct.status != "archief"']
+                args = []
+                if q:
+                    conds.append('(ct.title LIKE ? OR ct.description LIKE ? OR ct.tags LIKE ?)')
+                    like = f'%{q}%'
+                    args.extend([like, like, like])
+                if filter_uid:
+                    conds.append('ct.assigned_to = ?')
+                    args.append(filter_uid)
+                if filter_status in ('backlog', 'bezig', 'klaar'):
+                    conds.append('ct.status = ?')
+                    args.append(filter_status)
+                if filter_priority in ('hoog', 'medium', 'laag'):
+                    conds.append('ct.priority = ?')
+                    args.append(filter_priority)
+                where = ' AND '.join(conds)
+                cur.execute(f'''SELECT ct.*, u.username AS assigned_to_name, cg.title AS goal_title
+                    FROM comm_tasks ct
+                    LEFT JOIN users u ON ct.assigned_to = u.id
+                    LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
+                    WHERE {where}
+                    ORDER BY CASE ct.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                    COALESCE(ct.due_date,'9999-12-31') ASC''', args)
+                results = cur.fetchall()
+                cur.execute("SELECT id, username FROM users WHERE is_comm=1 OR is_admin=1 OR id=1 ORDER BY username")
+                comm_members = cur.fetchall()
+            self.render_comm_search(results, comm_members, q, filter_uid, filter_status, filter_priority, user_id, username)
+        elif path == '/comm/goals/edit':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            gid = query_params.get('id', [None])[0]
+            try:
+                gid_int = int(gid) if gid else None
+            except ValueError:
+                gid_int = None
+            if not gid_int:
+                self.respond_redirect('/comm/goals')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                target_date = params.get('target_date', [''])[0].strip() or None
+                if title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('UPDATE comm_goals SET title=?, description=?, target_date=? WHERE id=?',
+                                    (title, description or None, target_date, gid_int))
+                        conn.commit()
+                self.respond_redirect('/comm/goals')
+            else:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT * FROM comm_goals WHERE id = ?', (gid_int,))
+                    goal = cur.fetchone()
+                if not goal:
+                    self.respond_redirect('/comm/goals')
+                    return
+                self.render_comm_goal_edit(goal, user_id, username)
         elif path == '/comm/tasks/move':
             if not logged_in or not is_comm_member(user_id):
                 self.respond_redirect('/dashboard')
@@ -3549,339 +3771,593 @@ function bulkAction(action){
         self.wfile.write(body.encode('utf-8'))
 
 
+    def _comm_nav(self, active: str, user_id: int) -> str:
+        """Return navigation tabs for the comm dashboard."""
+        tabs = [
+            ('/comm/board', '&#9776; Board', 'board'),
+            ('/comm/goals', '&#127945; Doelen', 'goals'),
+            ('/comm/week', '&#128197; Week', 'week'),
+            (f'/comm/profile?id={user_id}', '&#128100; Mijn profiel', 'profile'),
+            ('/comm/search', '&#128269; Zoeken', 'search'),
+            ('/comm/archived', '&#128452; Archief', 'archived'),
+        ]
+        parts = []
+        for href, label, key in tabs:
+            if key == active:
+                parts.append(f'<a href="{href}" style="background:#c2185b;color:#fff;padding:0.4rem 0.85rem;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.9rem;">{label}</a>')
+            else:
+                parts.append(f'<a href="{href}" style="background:#fff;color:#c2185b;border:2px solid #c2185b;padding:0.3rem 0.85rem;border-radius:4px;text-decoration:none;font-size:0.9rem;">{label}</a>')
+        return '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:1rem;">' + ''.join(parts) + '</div>'
+
+    def _priority_badge(self, priority: str) -> str:
+        colors = {'hoog': ('#dc3545', '&#9650; Hoog'), 'medium': ('#f57f17', '&#9654; Medium'), 'laag': ('#388e3c', '&#9660; Laag')}
+        color, label = colors.get(priority or 'medium', ('#f57f17', '&#9654; Medium'))
+        return f'<span style="font-size:0.7rem;background:{color};color:#fff;border-radius:3px;padding:0.1rem 0.35rem;">{label}</span>'
+
+    def _send_html(self, body: str) -> None:
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
     def render_comm_board(self, user_id: int, username: str) -> None:
         """Render the communication team kanban board with stats."""
         today_iso = datetime.date.today().isoformat()
+        week_end = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
-            # All comm tasks with assignee name
+            # All active comm tasks
             cur.execute('''
                 SELECT ct.id, ct.title, ct.description, ct.status, ct.due_date,
-                       ct.goal_id, cg.title AS goal_title,
-                       u.username AS assigned_to_name, ct.assigned_to,
+                       ct.goal_id, cg.title AS goal_title, ct.priority, ct.tags,
+                       ct.reminder_note, u.username AS assigned_to_name, ct.assigned_to,
                        cb.username AS created_by_name
                 FROM comm_tasks ct
                 LEFT JOIN users u ON ct.assigned_to = u.id
                 LEFT JOIN users cb ON ct.created_by = cb.id
                 LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
-                ORDER BY COALESCE(ct.due_date, '9999-12-31') ASC, ct.created_at DESC
+                WHERE ct.status != 'archief'
+                ORDER BY CASE ct.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                         COALESCE(ct.due_date, '9999-12-31') ASC, ct.created_at DESC
             ''')
             all_tasks = cur.fetchall()
-            # Stats per comm team member
             cur.execute('''
                 SELECT u.id, u.username,
-                    SUM(CASE WHEN ct.status != 'klaar' THEN 1 ELSE 0 END) AS open_tasks,
+                    SUM(CASE WHEN ct.status NOT IN ('klaar','archief') THEN 1 ELSE 0 END) AS open_tasks,
                     SUM(CASE WHEN ct.status = 'klaar' THEN 1 ELSE 0 END) AS done_tasks,
-                    SUM(CASE WHEN ct.status != 'klaar' AND ct.due_date < ? THEN 1 ELSE 0 END) AS overdue_tasks
+                    SUM(CASE WHEN ct.status NOT IN ('klaar','archief') AND ct.due_date < ? THEN 1 ELSE 0 END) AS overdue_tasks
                 FROM users u
                 LEFT JOIN comm_tasks ct ON ct.assigned_to = u.id
                 WHERE u.is_comm = 1 OR u.is_admin = 1 OR u.id = 1
                 GROUP BY u.id ORDER BY u.username ASC
             ''', (today_iso,))
             member_stats = cur.fetchall()
-            # Get all comm members for the add form
-            cur.execute('''
-                SELECT id, username FROM users
-                WHERE is_comm = 1 OR is_admin = 1 OR id = 1
-                ORDER BY username ASC
-            ''')
+            cur.execute('SELECT id, username FROM users WHERE is_comm=1 OR is_admin=1 OR id=1 ORDER BY username')
             comm_members = cur.fetchall()
-            # Get active goals for task linking
-            cur.execute("SELECT id, title FROM comm_goals WHERE status = 'actief' ORDER BY title ASC")
+            cur.execute("SELECT id, title FROM comm_goals WHERE status='actief' ORDER BY title")
             active_goals = cur.fetchall()
 
         backlog = [t for t in all_tasks if t['status'] == 'backlog']
-        bezig = [t for t in all_tasks if t['status'] == 'bezig']
-        klaar = [t for t in all_tasks if t['status'] == 'klaar']
+        bezig   = [t for t in all_tasks if t['status'] == 'bezig']
+        klaar   = [t for t in all_tasks if t['status'] == 'klaar']
 
         body = html_header('Communicatie Board', True, username, user_id)
         body += '<h2 class="mt-4">&#128101; Communicatie Dashboard</h2>'
+        body += self._comm_nav('board', user_id)
 
-        # Navigation tabs
-        body += '''<div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-            <a href="/comm/board" style="background:#c2185b;color:#fff;padding:0.4rem 1rem;border-radius:4px;text-decoration:none;font-weight:bold;">&#9776; Board</a>
-            <a href="/comm/goals" style="background:#fff;color:#c2185b;border:2px solid #c2185b;padding:0.4rem 1rem;border-radius:4px;text-decoration:none;">&#127945; Doelen</a>
-        </div>'''
+        # Reminder banner: overdue + due today
+        overdue_tasks = [t for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] and t['due_date'] < today_iso and t['assigned_to'] == user_id]
+        today_tasks   = [t for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] == today_iso and t['assigned_to'] == user_id]
+        if overdue_tasks:
+            body += f'<div style="background:#ffebee;border-left:4px solid #dc3545;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#9888; <strong>{len(overdue_tasks)} verlopen {"taak" if len(overdue_tasks)==1 else "taken"} van jou:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in overdue_tasks[:5]) + ('...' if len(overdue_tasks) > 5 else '') + '</div>'
+        if today_tasks:
+            body += f'<div style="background:#fff8e1;border-left:4px solid #f57f17;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#128197; <strong>{len(today_tasks)} {"taak" if len(today_tasks)==1 else "taken"} van jou vervalt vandaag:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in today_tasks) + '</div>'
+
+        # Reminder notes banner (tasks with reminder_note assigned to me)
+        reminders = [t for t in all_tasks if t['reminder_note'] and t['assigned_to'] == user_id and t['status'] not in ('klaar','archief')]
+        if reminders:
+            body += '<div style="background:#e8f5e9;border-left:4px solid #388e3c;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#128276; <strong>Herinneringen:</strong><ul style="margin:0.3rem 0 0 1.2rem;padding:0;">'
+            for r in reminders:
+                body += f'<li><em>{html.escape(r["title"])}</em>: {html.escape(r["reminder_note"])}</li>'
+            body += '</ul></div>'
 
         # Stats row
-        total_open = len(backlog) + len(bezig)
-        total_overdue = sum(1 for t in all_tasks if t['status'] != 'klaar' and t['due_date'] and t['due_date'] < today_iso)
-        total_done = len(klaar)
-
         def _stat(val, label, color='#c2185b'):
-            return f'<div class="card" style="flex:1;min-width:110px;text-align:center;padding:0.75rem;"><div style="font-size:1.8rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.85rem;color:#555;">{label}</div></div>'
-
+            return f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.8rem;color:#555;">{label}</div></div>'
+        total_open    = len(backlog) + len(bezig)
+        total_overdue = sum(1 for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] and t['due_date'] < today_iso)
         body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
         body += _stat(total_open, 'Open taken', '#f57f17')
         body += _stat(total_overdue, 'Verlopen', '#dc3545' if total_overdue else '#388e3c')
-        body += _stat(total_done, 'Afgerond', '#388e3c')
+        body += _stat(len(klaar), 'Afgerond', '#388e3c')
         body += _stat(len(active_goals), 'Actieve doelen', '#7b1fa2')
         body += '</div>'
 
-        # Per-member stats
-        if member_stats:
-            body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128200; Statistieken per teamlid</summary>'
-            body += '<div class="card" style="margin-top:0.25rem;"><table><thead><tr><th>Teamlid</th><th>Open taken</th><th>Verlopen</th><th>Afgerond</th></tr></thead><tbody>'
-            for m in member_stats:
-                overdue_col = '#dc3545' if (m['overdue_tasks'] or 0) > 0 else '#388e3c'
-                body += f'''<tr>
-                    <td>{html.escape(m['username'])}</td>
-                    <td>{m['open_tasks'] or 0}</td>
-                    <td style="color:{overdue_col};font-weight:bold;">{m['overdue_tasks'] or 0}</td>
-                    <td style="color:#388e3c;">{m['done_tasks'] or 0}</td>
-                </tr>'''
-            body += '</tbody></table></div></details>'
+        # Per-member stats (collapsible)
+        body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.55rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128200; Statistieken per teamlid</summary>'
+        body += '<div class="card" style="margin-top:0.25rem;"><table><thead><tr><th>Teamlid</th><th>Open</th><th>Verlopen</th><th>Afgerond</th></tr></thead><tbody>'
+        for m in member_stats:
+            oc = '#dc3545' if (m['overdue_tasks'] or 0) > 0 else '#388e3c'
+            body += f'<tr><td><a href="/comm/profile?id={m["id"]}" style="color:#c2185b;">{html.escape(m["username"])}</a></td><td>{m["open_tasks"] or 0}</td><td style="color:{oc};font-weight:bold;">{m["overdue_tasks"] or 0}</td><td style="color:#388e3c;">{m["done_tasks"] or 0}</td></tr>'
+        body += '</tbody></table></div></details>'
 
-        # Quick add task form
+        # Quick add form
         member_opts = '<option value="">Niet toegewezen</option>' + ''.join(
-            f'<option value="{m["id"]}"{"selected" if m["id"] == user_id else ""}>{html.escape(m["username"])}</option>'
-            for m in comm_members)
+            f'<option value="{m["id"]}"{"selected" if m["id"]==user_id else ""}>{html.escape(m["username"])}</option>' for m in comm_members)
         goal_opts = '<option value="">Geen doel</option>' + ''.join(
             f'<option value="{g["id"]}">{html.escape(g["title"])}</option>' for g in active_goals)
         body += f'''<div class="card" style="margin-bottom:1rem;">
-            <div class="section-title">&#43; Nieuwe taak toevoegen</div>
+            <div class="section-title">&#43; Nieuwe taak</div>
             <form method="POST" action="/comm/tasks/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
-                <div style="flex:2;min-width:180px;">
-                    <label style="font-size:0.8rem;font-weight:bold;">Taak *</label><br>
-                    <input type="text" name="title" required placeholder="Wat moet er gebeuren?" class="form-control">
-                </div>
-                <div style="flex:1;min-width:130px;">
-                    <label style="font-size:0.8rem;font-weight:bold;">Toegewezen aan</label><br>
-                    <select name="assigned_to" class="form-control">{member_opts}</select>
-                </div>
-                <div style="flex:1;min-width:130px;">
-                    <label style="font-size:0.8rem;font-weight:bold;">Doel (optioneel)</label><br>
-                    <select name="goal_id" class="form-control">{goal_opts}</select>
-                </div>
-                <div style="min-width:130px;">
-                    <label style="font-size:0.8rem;font-weight:bold;">Deadline</label><br>
-                    <input type="date" name="due_date" class="form-control">
-                </div>
-                <div style="min-width:110px;">
-                    <label style="font-size:0.8rem;font-weight:bold;">Kolom</label><br>
+                <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Taak *</label><br>
+                    <input type="text" name="title" required placeholder="Wat moet er gebeuren?" class="form-control"></div>
+                <div style="flex:1;min-width:120px;"><label style="font-size:0.8rem;font-weight:bold;">Toegewezen aan</label><br>
+                    <select name="assigned_to" class="form-control">{member_opts}</select></div>
+                <div style="flex:1;min-width:120px;"><label style="font-size:0.8rem;font-weight:bold;">Doel</label><br>
+                    <select name="goal_id" class="form-control">{goal_opts}</select></div>
+                <div style="min-width:120px;"><label style="font-size:0.8rem;font-weight:bold;">Deadline</label><br>
+                    <input type="date" name="due_date" class="form-control"></div>
+                <div style="min-width:100px;"><label style="font-size:0.8rem;font-weight:bold;">Prioriteit</label><br>
+                    <select name="priority" class="form-control">
+                        <option value="laag">&#9660; Laag</option>
+                        <option value="medium" selected>&#9654; Medium</option>
+                        <option value="hoog">&#9650; Hoog</option>
+                    </select></div>
+                <div style="min-width:100px;"><label style="font-size:0.8rem;font-weight:bold;">Kolom</label><br>
                     <select name="status" class="form-control">
                         <option value="backlog">Backlog</option>
                         <option value="bezig">Bezig</option>
-                        <option value="klaar">Klaar</option>
-                    </select>
-                </div>
-                <div>
-                    <button type="submit" class="btn btn-primary" style="padding:0.45rem 1rem;">Toevoegen</button>
-                </div>
+                    </select></div>
+                <div><label style="font-size:0.8rem;font-weight:bold;">Tags</label><br>
+                    <input type="text" name="tags" placeholder="bijv. social,pr" class="form-control" style="width:110px;"></div>
+                <div style="align-self:flex-end;">
+                    <button type="submit" class="btn btn-primary">Toevoegen</button></div>
             </form>
         </div>'''
 
-        # Kanban columns
+        # Kanban board
         def _task_card(t):
             is_overdue = t['due_date'] and t['due_date'] < today_iso and t['status'] != 'klaar'
-            date_color = '#dc3545' if is_overdue else '#555'
-            date_str = f'<div style="font-size:0.78rem;color:{date_color};margin-top:0.2rem;">&#128197; {t["due_date"]}{"  &#9888;" if is_overdue else ""}</div>' if t['due_date'] else ''
-            assigned = f'<div style="font-size:0.78rem;color:#888;">&#128100; {html.escape(t["assigned_to_name"])}</div>' if t['assigned_to_name'] else ''
-            goal_badge = f'<div style="font-size:0.72rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.1rem 0.35rem;display:inline-block;margin-top:0.2rem;">&#127945; {html.escape(t["goal_title"])}</div>' if t['goal_title'] else ''
-            desc = f'<div style="font-size:0.8rem;color:#666;margin-top:0.2rem;">{html.escape(t["description"])}</div>' if t['description'] else ''
+            is_today   = t['due_date'] == today_iso
+            date_color = '#dc3545' if is_overdue else ('#f57f17' if is_today else '#555')
+            border_left = 'border-left:3px solid #dc3545;' if is_overdue else ('border-left:3px solid #f57f17;' if is_today else '')
+            date_html  = f'<div style="font-size:0.75rem;color:{date_color};">&#128197; {t["due_date"]}{"  &#9888;" if is_overdue else (" &#9889;" if is_today else "")}</div>' if t['due_date'] else ''
+            assigned   = f'<span style="font-size:0.75rem;color:#888;">&#128100; {html.escape(t["assigned_to_name"])}</span>' if t['assigned_to_name'] else ''
+            goal_badge = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"])}</span>' if t['goal_title'] else ''
+            tags_html  = ''.join(f'<span style="font-size:0.7rem;background:#e3f2fd;color:#1565c0;border-radius:3px;padding:0.05rem 0.3rem;">{html.escape(tag.strip())}</span>' for tag in (t['tags'] or '').split(',') if tag.strip())
+            reminder   = f'<div style="font-size:0.75rem;color:#388e3c;margin-top:0.2rem;">&#128276; {html.escape(t["reminder_note"])}</div>' if t['reminder_note'] else ''
+            prio_badge = self._priority_badge(t['priority'])
+            desc       = f'<div style="font-size:0.78rem;color:#666;margin:0.2rem 0;">{html.escape(t["description"][:80])}{"…" if len(t["description"] or "")>80 else ""}</div>' if t['description'] else ''
 
-            # Move buttons
-            move_btns = ''
             if t['status'] == 'backlog':
-                move_btns = f'<a href="/comm/tasks/move?id={t["id"]}&status=bezig" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:0.72rem;">→ Bezig</a>'
+                move = f'<a href="/comm/tasks/move?id={t["id"]}&status=bezig" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:0.7rem;">→ Bezig</a>'
             elif t['status'] == 'bezig':
-                move_btns = (f'<a href="/comm/tasks/move?id={t["id"]}&status=backlog" class="btn btn-sm btn-secondary" style="font-size:0.72rem;">← Backlog</a> '
-                             f'<a href="/comm/tasks/move?id={t["id"]}&status=klaar" class="btn btn-sm" style="background:#388e3c;color:#fff;font-size:0.72rem;">&#10003; Klaar</a>')
-            elif t['status'] == 'klaar':
-                move_btns = f'<a href="/comm/tasks/move?id={t["id"]}&status=bezig" class="btn btn-sm btn-secondary" style="font-size:0.72rem;">↩ Heropenen</a>'
+                move = (f'<a href="/comm/tasks/move?id={t["id"]}&status=backlog" class="btn btn-sm btn-secondary" style="font-size:0.7rem;">← Back</a> '
+                        f'<a href="/comm/tasks/move?id={t["id"]}&status=klaar" class="btn btn-sm" style="background:#388e3c;color:#fff;font-size:0.7rem;">&#10003; Klaar</a>')
+            else:
+                move = (f'<a href="/comm/tasks/move?id={t["id"]}&status=bezig" class="btn btn-sm btn-secondary" style="font-size:0.7rem;">↩ Heropenen</a> '
+                        f'<a href="/comm/tasks/archive-done" class="btn btn-sm btn-secondary" style="font-size:0.7rem;" onclick="return confirm(\'Alle afgeronde taken archiveren?\');">&#128452; Archiveer alle</a>')
 
-            del_btn = f'<a href="/comm/tasks/delete?id={t["id"]}" style="float:right;color:#dc3545;font-size:0.8rem;text-decoration:none;" onclick="return confirm(\'Taak verwijderen?\');">&#10005;</a>'
-            return f'''<div style="background:#fff;border-radius:6px;padding:0.65rem 0.75rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                {del_btn}
-                <div style="font-weight:bold;font-size:0.9rem;">{html.escape(t["title"])}</div>
-                {desc}{goal_badge}{assigned}{date_str}
-                <div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">{move_btns}</div>
+            edit_btn = f'<a href="/comm/tasks/edit?id={t["id"]}" style="color:#1565c0;font-size:0.78rem;text-decoration:none;margin-right:0.4rem;">&#9998;</a>'
+            del_btn  = f'<a href="/comm/tasks/delete?id={t["id"]}" style="color:#dc3545;font-size:0.78rem;text-decoration:none;" onclick="return confirm(\'Taak verwijderen?\');">&#10005;</a>'
+            return f'''<div style="background:#fff;border-radius:6px;padding:0.6rem 0.7rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);{border_left}">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                    <div style="font-weight:bold;font-size:0.88rem;flex:1;">{html.escape(t["title"])}</div>
+                    <div style="white-space:nowrap;margin-left:0.5rem;">{edit_btn}{del_btn}</div>
+                </div>
+                {desc}
+                <div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin:0.3rem 0;">{prio_badge}{goal_badge}{tags_html}{assigned}</div>
+                {date_html}{reminder}
+                <div style="margin-top:0.4rem;display:flex;gap:0.3rem;flex-wrap:wrap;">{move}</div>
             </div>'''
 
-        col_style = 'flex:1;min-width:240px;background:#f0f0f0;border-radius:8px;padding:0.75rem;'
-        col_title_style = 'font-weight:bold;margin-bottom:0.75rem;font-size:0.95rem;'
-
+        cs = 'flex:1;min-width:240px;background:#f0f0f0;border-radius:8px;padding:0.75rem;'
         body += '<div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start;">'
-        # Backlog
-        body += f'<div style="{col_style}">'
-        body += f'<div style="{col_title_style}">&#128203; Backlog <span style="background:#888;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.8rem;margin-left:0.3rem;">{len(backlog)}</span></div>'
-        body += ''.join(_task_card(t) for t in backlog) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>'
-        body += '</div>'
-        # Bezig
-        body += f'<div style="{col_style}">'
-        body += f'<div style="{col_title_style}">&#9889; Bezig <span style="background:#1565c0;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.8rem;margin-left:0.3rem;">{len(bezig)}</span></div>'
-        body += ''.join(_task_card(t) for t in bezig) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>'
-        body += '</div>'
-        # Klaar
-        body += f'<div style="{col_style}">'
-        body += f'<div style="{col_title_style}">&#10003; Klaar <span style="background:#388e3c;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.8rem;margin-left:0.3rem;">{len(klaar)}</span></div>'
-        body += ''.join(_task_card(t) for t in klaar) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>'
-        body += '</div>'
-        body += '</div>'
-
+        body += f'<div style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#128203; Backlog <span style="background:#888;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(backlog)}</span></div>'
+        body += (''.join(_task_card(t) for t in backlog) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>') + '</div>'
+        body += f'<div style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#9889; Bezig <span style="background:#1565c0;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(bezig)}</span></div>'
+        body += (''.join(_task_card(t) for t in bezig) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>') + '</div>'
+        body += f'<div style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#10003; Klaar <span style="background:#388e3c;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(klaar)}</span></div>'
+        if klaar:
+            body += ''.join(_task_card(t) for t in klaar)
+            body += f'<div style="margin-top:0.5rem;"><a href="/comm/tasks/archive-done" class="btn btn-sm btn-secondary" onclick="return confirm(\'Alle afgeronde taken archiveren?\');">&#128452; Archiveer alle ({len(klaar)})</a></div>'
+        else:
+            body += '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>'
+        body += '</div></div>'
         body += html_footer()
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
-        self.end_headers()
-        self.wfile.write(body.encode('utf-8'))
+        self._send_html(body)
 
     def render_comm_goals(self, user_id: int, username: str) -> None:
-        """Render the communication team goals page with deliverables (linked tasks)."""
+        """Render the goals page with deliverables and progress bars."""
         today_iso = datetime.date.today().isoformat()
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
-            cur.execute('''
-                SELECT g.id, g.title, g.description, g.target_date, g.status,
-                       cb.username AS created_by_name, g.created_at
-                FROM comm_goals g
-                LEFT JOIN users cb ON g.created_by = cb.id
-                ORDER BY g.status ASC, COALESCE(g.target_date, '9999-12-31') ASC
-            ''')
+            cur.execute('''SELECT g.id, g.title, g.description, g.target_date, g.status,
+                           cb.username AS created_by_name
+                           FROM comm_goals g LEFT JOIN users cb ON g.created_by = cb.id
+                           ORDER BY g.status ASC, COALESCE(g.target_date,'9999-12-31') ASC''')
             goals = cur.fetchall()
-            # Tasks per goal
-            cur.execute('''
-                SELECT ct.id, ct.title, ct.status, ct.due_date, ct.goal_id,
-                       u.username AS assigned_to_name
-                FROM comm_tasks ct
-                LEFT JOIN users u ON ct.assigned_to = u.id
-                WHERE ct.goal_id IS NOT NULL
-                ORDER BY COALESCE(ct.due_date, '9999-12-31') ASC
-            ''')
+            cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.goal_id, ct.priority,
+                           u.username AS assigned_to_name
+                           FROM comm_tasks ct LEFT JOIN users u ON ct.assigned_to = u.id
+                           WHERE ct.goal_id IS NOT NULL
+                           ORDER BY COALESCE(ct.due_date,'9999-12-31') ASC''')
             goal_tasks_raw = cur.fetchall()
 
-        # Group tasks by goal_id
         from collections import defaultdict
-        tasks_by_goal = defaultdict(list)
+        tasks_by_goal: dict = defaultdict(list)
         for t in goal_tasks_raw:
             tasks_by_goal[t['goal_id']].append(t)
 
         body = html_header('Communicatie Doelen', True, username, user_id)
-        body += '<h2 class="mt-4">&#127945; Communicatie Doelen</h2>'
+        body += '<h2 class="mt-4">&#127945; Doelen</h2>'
+        body += self._comm_nav('goals', user_id)
 
-        # Navigation tabs
-        body += '''<div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-            <a href="/comm/board" style="background:#fff;color:#c2185b;border:2px solid #c2185b;padding:0.4rem 1rem;border-radius:4px;text-decoration:none;">&#9776; Board</a>
-            <a href="/comm/goals" style="background:#c2185b;color:#fff;padding:0.4rem 1rem;border-radius:4px;text-decoration:none;font-weight:bold;">&#127945; Doelen</a>
-        </div>'''
-
-        # Stats
-        actief = [g for g in goals if g['status'] == 'actief']
+        actief  = [g for g in goals if g['status'] == 'actief']
         behaald = [g for g in goals if g['status'] == 'behaald']
-        body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
-        body += f'<div class="card" style="flex:1;min-width:110px;text-align:center;padding:0.75rem;"><div style="font-size:1.8rem;font-weight:bold;color:#7b1fa2;">{len(actief)}</div><div style="font-size:0.85rem;color:#555;">Actieve doelen</div></div>'
-        body += f'<div class="card" style="flex:1;min-width:110px;text-align:center;padding:0.75rem;"><div style="font-size:1.8rem;font-weight:bold;color:#388e3c;">{len(behaald)}</div><div style="font-size:0.85rem;color:#555;">Behaald</div></div>'
-        body += '</div>'
+        body += f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;"><div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:#7b1fa2;">{len(actief)}</div><div style="font-size:0.8rem;color:#555;">Actief</div></div><div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:#388e3c;">{len(behaald)}</div><div style="font-size:0.8rem;color:#555;">Behaald</div></div></div>'
 
-        # Add goal form
-        body += '''<div class="card" style="margin-bottom:1rem;">
-            <div class="section-title">&#43; Nieuw doel toevoegen</div>
+        body += '''<div class="card" style="margin-bottom:1rem;"><div class="section-title">&#43; Nieuw doel</div>
             <form method="POST" action="/comm/goals/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
-                <div style="flex:2;min-width:180px;">
-                    <label style="font-size:0.8rem;font-weight:bold;">Doel *</label><br>
-                    <input type="text" name="title" required placeholder="Bijv. Q2 campagne afronden" class="form-control">
-                </div>
-                <div style="flex:2;min-width:200px;">
-                    <label style="font-size:0.8rem;font-weight:bold;">Omschrijving</label><br>
-                    <input type="text" name="description" placeholder="Optionele toelichting" class="form-control">
-                </div>
-                <div style="min-width:140px;">
-                    <label style="font-size:0.8rem;font-weight:bold;">Streefdatum</label><br>
-                    <input type="date" name="target_date" class="form-control">
-                </div>
-                <div>
-                    <button type="submit" class="btn btn-primary" style="padding:0.45rem 1rem;">Toevoegen</button>
-                </div>
-            </form>
-        </div>'''
+                <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Doel *</label><br>
+                    <input type="text" name="title" required placeholder="Bijv. Q2 campagne" class="form-control"></div>
+                <div style="flex:2;min-width:180px;"><label style="font-size:0.8rem;font-weight:bold;">Omschrijving</label><br>
+                    <input type="text" name="description" placeholder="Toelichting" class="form-control"></div>
+                <div style="min-width:130px;"><label style="font-size:0.8rem;font-weight:bold;">Streefdatum</label><br>
+                    <input type="date" name="target_date" class="form-control"></div>
+                <div><button type="submit" class="btn btn-primary" style="padding:0.45rem 1rem;">Toevoegen</button></div>
+            </form></div>'''
 
-        # Goals list
         for g in goals:
-            is_done = g['status'] == 'behaald'
-            is_overdue = g['target_date'] and g['target_date'] < today_iso and not is_done
-            date_color = '#dc3545' if is_overdue else ('#388e3c' if is_done else '#555')
-            date_str = f' &nbsp;&#128197; <span style="color:{date_color};">{g["target_date"]}{"  &#9888;" if is_overdue else ""}</span>' if g['target_date'] else ''
-            status_badge = '<span style="background:#e8f5e9;color:#388e3c;border-radius:4px;padding:0.15rem 0.5rem;font-size:0.8rem;">&#10003; Behaald</span>' if is_done else '<span style="background:#ede7f6;color:#7b1fa2;border-radius:4px;padding:0.15rem 0.5rem;font-size:0.8rem;">Actief</span>'
-            desc = f'<div style="font-size:0.85rem;color:#666;margin:0.3rem 0;">{html.escape(g["description"])}</div>' if g['description'] else ''
+            is_done  = g['status'] == 'behaald'
+            overdue  = g['target_date'] and g['target_date'] < today_iso and not is_done
+            dc       = '#dc3545' if overdue else ('#388e3c' if is_done else '#555')
+            date_str = f' &#128197; <span style="color:{dc};">{g["target_date"]}{"  &#9888;" if overdue else ""}</span>' if g['target_date'] else ''
+            sbadge   = '<span style="background:#e8f5e9;color:#388e3c;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.78rem;">&#10003; Behaald</span>' if is_done else '<span style="background:#ede7f6;color:#7b1fa2;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.78rem;">Actief</span>'
+            desc     = f'<div style="font-size:0.85rem;color:#666;margin:0.25rem 0;">{html.escape(g["description"])}</div>' if g['description'] else ''
+            act_btn  = (f'<a href="/comm/goals/reopen?id={g["id"]}" class="btn btn-sm btn-secondary">↩ Heropenen</a>' if is_done
+                        else f'<a href="/comm/goals/complete?id={g["id"]}" class="btn btn-sm" style="background:#388e3c;color:#fff;" onclick="return confirm(\'Doel behaald markeren?\');">&#10003; Behaald</a>')
+            edit_btn = f'<a href="/comm/goals/edit?id={g["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.4rem;">&#9998; Bewerk</a>'
+            del_btn  = f'<a href="/comm/goals/delete?id={g["id"]}" class="btn btn-sm btn-danger" style="margin-left:0.4rem;" onclick="return confirm(\'Doel verwijderen?\');">Verwijder</a>'
 
-            if is_done:
-                action_btn = f'<a href="/comm/goals/reopen?id={g["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;">↩ Heropenen</a>'
-            else:
-                action_btn = f'<a href="/comm/goals/complete?id={g["id"]}" class="btn btn-sm" style="background:#388e3c;color:#fff;margin-left:0.5rem;" onclick="return confirm(\'Doel als behaald markeren?\');">&#10003; Behaald</a>'
-            del_btn = f'<a href="/comm/goals/delete?id={g["id"]}" class="btn btn-sm btn-danger" style="margin-left:0.5rem;" onclick="return confirm(\'Doel verwijderen? Taken worden losgekoppeld.\');">Verwijder</a>'
-
-            gtasks = tasks_by_goal.get(g['id'], [])
-            done_count = sum(1 for t in gtasks if t['status'] == 'klaar')
-            progress_pct = int(done_count / len(gtasks) * 100) if gtasks else 0
-            progress_bar = ''
-            if gtasks:
-                progress_bar = f'''<div style="margin:0.5rem 0;">
-                    <div style="font-size:0.78rem;color:#666;margin-bottom:0.2rem;">Deliverables: {done_count}/{len(gtasks)} klaar ({progress_pct}%)</div>
-                    <div style="background:#e0e0e0;border-radius:4px;height:8px;"><div style="background:#7b1fa2;border-radius:4px;height:8px;width:{progress_pct}%;"></div></div>
-                </div>'''
+            gtasks    = tasks_by_goal.get(g['id'], [])
+            done_cnt  = sum(1 for t in gtasks if t['status'] == 'klaar')
+            pct       = int(done_cnt / len(gtasks) * 100) if gtasks else 0
+            prog_bar  = (f'<div style="margin:0.4rem 0;"><div style="font-size:0.75rem;color:#666;margin-bottom:0.2rem;">Deliverables: {done_cnt}/{len(gtasks)} ({pct}%)</div>'
+                         f'<div style="background:#e0e0e0;border-radius:4px;height:7px;"><div style="background:#7b1fa2;border-radius:4px;height:7px;width:{pct}%;"></div></div></div>') if gtasks else ''
 
             body += f'''<div class="card" style="opacity:{'0.7' if is_done else '1'};">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;">
-                    <div style="flex:1;">
-                        <span style="font-size:1rem;font-weight:bold;">&#127945; {html.escape(g["title"])}</span>
-                        &nbsp;{status_badge}{date_str}
-                        {desc}
-                        {progress_bar}
-                    </div>
-                    <div style="white-space:nowrap;margin-top:0.25rem;">
-                        {action_btn}{del_btn}
-                    </div>
+                    <div style="flex:1;"><strong>&#127945; {html.escape(g["title"])}</strong> {sbadge}{date_str}
+                        {desc}{prog_bar}</div>
+                    <div style="white-space:nowrap;">{act_btn}{edit_btn}{del_btn}</div>
                 </div>'''
-
-            # Deliverables (tasks linked to this goal)
             if gtasks:
-                body += '<div style="margin-top:0.75rem;border-top:1px solid #eee;padding-top:0.5rem;">'
-                body += '<div style="font-size:0.8rem;font-weight:bold;color:#7b1fa2;margin-bottom:0.35rem;">Deliverables / Taken</div>'
+                body += '<div style="margin-top:0.6rem;border-top:1px solid #eee;padding-top:0.4rem;"><div style="font-size:0.78rem;font-weight:bold;color:#7b1fa2;margin-bottom:0.3rem;">Deliverables</div>'
                 for t in gtasks:
-                    t_done = t['status'] == 'klaar'
-                    t_overdue = t['due_date'] and t['due_date'] < today_iso and not t_done
-                    t_date = f' <small style="color:{"#dc3545" if t_overdue else "#888"};">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
-                    t_assigned = f' <small style="color:#888;">&#128100; {html.escape(t["assigned_to_name"])}</small>' if t['assigned_to_name'] else ''
-                    t_status_icon = '&#10003;' if t_done else ('&#9889;' if t['status'] == 'bezig' else '&#9675;')
-                    t_color = '#388e3c' if t_done else ('#1565c0' if t['status'] == 'bezig' else '#888')
-                    body += f'<div style="padding:0.25rem 0;font-size:0.85rem;border-bottom:1px solid #f5f5f5;"><span style="color:{t_color};">{t_status_icon}</span> {html.escape(t["title"])}{t_assigned}{t_date}</div>'
+                    td   = t['status'] == 'klaar'
+                    to   = t['due_date'] and t['due_date'] < today_iso and not td
+                    icon = '&#10003;' if td else ('&#9889;' if t['status'] == 'bezig' else '&#9675;')
+                    ic   = '#388e3c' if td else ('#1565c0' if t['status'] == 'bezig' else '#888')
+                    dat  = f' <small style="color:{"#dc3545" if to else "#888"};">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
+                    asgn = f' <small style="color:#888;">&#128100; {html.escape(t["assigned_to_name"])}</small>' if t['assigned_to_name'] else ''
+                    pb   = self._priority_badge(t['priority'])
+                    body += f'<div style="padding:0.2rem 0;font-size:0.83rem;border-bottom:1px solid #f5f5f5;display:flex;gap:0.4rem;align-items:center;"><span style="color:{ic};">{icon}</span> <span>{html.escape(t["title"])}</span>{asgn}{dat} {pb}</div>'
                 body += '</div>'
             elif not is_done:
-                body += f'<div style="margin-top:0.5rem;font-size:0.8rem;color:#aaa;">Nog geen deliverables — voeg taken toe via het <a href="/comm/board" style="color:#7b1fa2;">board</a> en koppel ze aan dit doel.</div>'
-
+                body += f'<div style="margin-top:0.4rem;font-size:0.78rem;color:#aaa;">Nog geen deliverables — voeg taken toe via het <a href="/comm/board" style="color:#7b1fa2;">board</a> en koppel ze aan dit doel.</div>'
             body += '</div>'
 
         if not goals:
             body += '<div class="card"><p style="color:#888;">Nog geen doelen. Voeg het eerste doel toe!</p></div>'
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_week(self, user_id: int, username: str) -> None:
+        """Render a week overview: tasks due in the next 7 days."""
+        today      = datetime.date.today()
+        today_iso  = today.isoformat()
+        week_end   = (today + datetime.timedelta(days=7)).isoformat()
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.priority, ct.tags,
+                           u.username AS assigned_to_name, cg.title AS goal_title
+                           FROM comm_tasks ct
+                           LEFT JOIN users u ON ct.assigned_to = u.id
+                           LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
+                           WHERE ct.status NOT IN ('klaar','archief') AND ct.due_date IS NOT NULL AND ct.due_date <= ?
+                           ORDER BY ct.due_date ASC,
+                           CASE ct.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END''', (week_end,))
+            week_tasks = cur.fetchall()
+            cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.priority,
+                           u.username AS assigned_to_name
+                           FROM comm_tasks ct LEFT JOIN users u ON ct.assigned_to = u.id
+                           WHERE ct.status NOT IN ('klaar','archief') AND (ct.due_date IS NULL OR ct.due_date > ?)
+                           AND ct.priority = 'hoog'
+                           ORDER BY COALESCE(ct.due_date,'9999-12-31') ASC''', (week_end,))
+            hoog_other = cur.fetchall()
+
+        body = html_header('Week Overzicht', True, username, user_id)
+        body += f'<h2 class="mt-4">&#128197; Week overzicht — {today.strftime("%d %b %Y")}</h2>'
+        body += self._comm_nav('week', user_id)
+
+        overdue = [t for t in week_tasks if t['due_date'] < today_iso]
+        vandaag = [t for t in week_tasks if t['due_date'] == today_iso]
+        morgen  = [t for t in week_tasks if t['due_date'] == (today + datetime.timedelta(days=1)).isoformat()]
+        rest    = [t for t in week_tasks if t['due_date'] > (today + datetime.timedelta(days=1)).isoformat()]
+
+        def _week_row(t, highlight=''):
+            pb   = self._priority_badge(t['priority'])
+            asgn = f'<span style="color:#888;font-size:0.78rem;">&#128100; {html.escape(t["assigned_to_name"])}</span>' if t['assigned_to_name'] else ''
+            goal = f'<span style="font-size:0.72rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"])}</span>' if t.get('goal_title') else ''
+            return f'<div style="padding:0.45rem 0;border-bottom:1px solid #eee;display:flex;gap:0.5rem;align-items:center;{highlight}"><span style="min-width:70px;font-size:0.78rem;color:#888;">{t["due_date"] or ""}</span> <span style="flex:1;font-weight:bold;font-size:0.88rem;">{html.escape(t["title"])}</span> {pb} {goal} {asgn}</div>'
+
+        def _section(title, tasks, bg='#fff', border='#ddd'):
+            if not tasks:
+                return ''
+            s = f'<div class="card" style="margin-bottom:0.75rem;border-left:4px solid {border};"><div style="font-weight:bold;margin-bottom:0.5rem;">{title} ({len(tasks)})</div>'
+            s += ''.join(_week_row(t) for t in tasks)
+            return s + '</div>'
+
+        body += _section('&#9888; Verlopen', overdue, border='#dc3545')
+        body += _section('&#128197; Vandaag', vandaag, border='#f57f17')
+        body += _section('&#9728; Morgen', morgen, border='#1565c0')
+        body += _section('&#128336; Deze week', rest, border='#388e3c')
+        if hoog_other:
+            body += _section('&#9650; Hoge prioriteit (later)', hoog_other, border='#c2185b')
+        if not week_tasks and not hoog_other:
+            body += '<div class="card"><p style="color:#888;">Geen taken deze week. Goed bezig! &#127881;</p></div>'
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_profile(self, profile_id: int, viewer_id: int, viewer_username: str) -> None:
+        """Render personal comm profile: my tasks, my goals, my stats."""
+        today_iso = datetime.date.today().isoformat()
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('SELECT id, username, email, created_at FROM users WHERE id = ?', (profile_id,))
+            profile_user = cur.fetchone()
+            if not profile_user:
+                self.respond_redirect('/comm/board')
+                return
+            cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.priority, ct.tags,
+                           cg.title AS goal_title
+                           FROM comm_tasks ct LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
+                           WHERE ct.assigned_to = ? AND ct.status NOT IN ('klaar','archief')
+                           ORDER BY CASE ct.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                           COALESCE(ct.due_date,'9999-12-31') ASC''', (profile_id,))
+            my_open = cur.fetchall()
+            cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.priority
+                           FROM comm_tasks ct
+                           WHERE ct.assigned_to = ? AND ct.status = 'klaar'
+                           ORDER BY ct.created_at DESC LIMIT 10''', (profile_id,))
+            my_done = cur.fetchall()
+            cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.priority
+                           FROM comm_tasks ct
+                           WHERE ct.created_by = ? AND (ct.assigned_to IS NULL OR ct.assigned_to != ?)
+                           AND ct.status NOT IN ('klaar','archief')
+                           ORDER BY COALESCE(ct.due_date,'9999-12-31') ASC''', (profile_id, profile_id))
+            created_by_me = cur.fetchall()
+            cur.execute('''SELECT g.id, g.title, g.target_date, g.status, g.description
+                           FROM comm_goals g WHERE g.created_by = ?
+                           ORDER BY g.status ASC, COALESCE(g.target_date,'9999-12-31') ASC''', (profile_id,))
+            my_goals = cur.fetchall()
+            # Stats
+            overdue_cnt = sum(1 for t in my_open if t['due_date'] and t['due_date'] < today_iso)
+
+        body = html_header(f'Profiel: {html.escape(profile_user["username"])}', True, viewer_username, viewer_id)
+        body += f'<h2 class="mt-4">&#128100; {html.escape(profile_user["username"])}</h2>'
+        body += self._comm_nav('profile', viewer_id)
+
+        # Profile card
+        body += f'''<div class="card" style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
+            <div style="width:56px;height:56px;border-radius:50%;background:#c2185b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.6rem;font-weight:bold;">{html.escape(profile_user["username"][0].upper())}</div>
+            <div><div style="font-size:1.1rem;font-weight:bold;">{html.escape(profile_user["username"])}</div>
+            <div style="color:#666;font-size:0.85rem;">{html.escape(profile_user["email"])}</div>
+            <div style="color:#aaa;font-size:0.78rem;">Lid sinds {profile_user["created_at"][:10]}</div></div>
+        </div>'''
+
+        # Stats row
+        def _stat(v, l, c='#c2185b'):
+            return f'<div class="card" style="flex:1;min-width:90px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:{c};">{v}</div><div style="font-size:0.78rem;color:#555;">{l}</div></div>'
+        body += '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">'
+        body += _stat(len(my_open), 'Open taken', '#f57f17')
+        body += _stat(overdue_cnt, 'Verlopen', '#dc3545' if overdue_cnt else '#388e3c')
+        body += _stat(len(my_done), 'Afgerond', '#388e3c')
+        body += _stat(len(my_goals), 'Doelen', '#7b1fa2')
+        body += '</div>'
+
+        def _task_row(t):
+            pb  = self._priority_badge(t['priority'])
+            ov  = t['due_date'] and t['due_date'] < today_iso and t['status'] not in ('klaar','archief')
+            dc  = '#dc3545' if ov else '#555'
+            dat = f'<small style="color:{dc};">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
+            gl  = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t.get("goal_title",""))}</span>' if t.get('goal_title') else ''
+            return f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;display:flex;gap:0.4rem;align-items:center;"><span style="flex:1;font-size:0.86rem;">{html.escape(t["title"])}</span>{pb}{gl}{dat}</div>'
+
+        # Open tasks
+        body += '<div class="card"><div class="section-title">Open taken</div>'
+        body += (''.join(_task_row(t) for t in my_open) if my_open else '<p style="color:#888;font-size:0.85rem;">Geen open taken.</p>') + '</div>'
+
+        # Created by me (assigned to others)
+        if created_by_me:
+            body += '<div class="card"><div class="section-title">Door mij aangemaakt (toegewezen aan anderen)</div>'
+            body += ''.join(_task_row(t) for t in created_by_me) + '</div>'
+
+        # My goals
+        body += '<div class="card"><div class="section-title">Mijn doelen</div>'
+        if my_goals:
+            for g in my_goals:
+                done = g['status'] == 'behaald'
+                ov   = g['target_date'] and g['target_date'] < today_iso and not done
+                dc   = '#dc3545' if ov else ('#388e3c' if done else '#555')
+                dat  = f' <small style="color:{dc};">&#128197; {g["target_date"]}</small>' if g['target_date'] else ''
+                sb   = '<span style="color:#388e3c;font-size:0.8rem;">&#10003;</span>' if done else '<span style="color:#7b1fa2;font-size:0.8rem;">&#9679;</span>'
+                body += f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;font-size:0.86rem;">{sb} <strong>{html.escape(g["title"])}</strong>{dat}</div>'
+        else:
+            body += '<p style="color:#888;font-size:0.85rem;">Geen doelen gevonden.</p>'
+        body += '</div>'
+
+        # Recent done
+        if my_done:
+            body += '<div class="card"><div class="section-title">Recent afgerond &#10003;</div>'
+            for t in my_done[:5]:
+                body += f'<div style="padding:0.3rem 0;border-bottom:1px solid #eee;font-size:0.83rem;color:#388e3c;">&#10003; {html.escape(t["title"])}</div>'
+            body += '</div>'
 
         body += html_footer()
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
-        self.end_headers()
-        self.wfile.write(body.encode('utf-8'))
+        self._send_html(body)
+
+    def render_comm_archived(self, user_id: int, username: str) -> None:
+        """Render archived (completed) comm tasks."""
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''SELECT ct.id, ct.title, ct.due_date, ct.priority, ct.tags,
+                           u.username AS assigned_to_name, cg.title AS goal_title, ct.created_at
+                           FROM comm_tasks ct
+                           LEFT JOIN users u ON ct.assigned_to = u.id
+                           LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
+                           WHERE ct.status = 'archief'
+                           ORDER BY ct.created_at DESC''')
+            archived = cur.fetchall()
+
+        body = html_header('Archief', True, username, user_id)
+        body += '<h2 class="mt-4">&#128452; Archief — Afgeronde taken</h2>'
+        body += self._comm_nav('archived', user_id)
+        body += f'<div class="card"><div class="section-title">{len(archived)} gearchiveerde taken</div>'
+        if archived:
+            body += '<table><thead><tr><th>Taak</th><th>Toegewezen aan</th><th>Doel</th><th>Prioriteit</th><th>Tags</th></tr></thead><tbody>'
+            for t in archived:
+                pb   = self._priority_badge(t['priority'])
+                asgn = html.escape(t['assigned_to_name'] or '-')
+                goal = html.escape(t['goal_title'] or '-')
+                tags = html.escape(t['tags'] or '-')
+                body += f'<tr><td>{html.escape(t["title"])}</td><td>{asgn}</td><td>{goal}</td><td>{pb}</td><td>{tags}</td></tr>'
+            body += '</tbody></table>'
+        else:
+            body += '<p style="color:#888;">Nog niets gearchiveerd.</p>'
+        body += '</div>'
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_search(self, results, comm_members, q, filter_uid, filter_status, filter_priority, user_id, username) -> None:
+        """Render comm task search results."""
+        today_iso = datetime.date.today().isoformat()
+        body = html_header('Zoeken', True, username, user_id)
+        body += '<h2 class="mt-4">&#128269; Taken zoeken</h2>'
+        body += self._comm_nav('search', user_id)
+
+        member_opts = '<option value="">Alle teamleden</option>' + ''.join(
+            f'<option value="{m["id"]}"{"selected" if filter_uid==m["id"] else ""}>{html.escape(m["username"])}</option>' for m in comm_members)
+        stat_opts = ''.join(f'<option value="{v}"{"selected" if filter_status==v else ""}>{l}</option>'
+                            for v, l in [('','Alle statussen'),('backlog','Backlog'),('bezig','Bezig'),('klaar','Klaar')])
+        prio_opts = ''.join(f'<option value="{v}"{"selected" if filter_priority==v else ""}>{l}</option>'
+                            for v, l in [('','Alle prioriteiten'),('hoog','Hoog'),('medium','Medium'),('laag','Laag')])
+
+        body += f'''<div class="card" style="margin-bottom:1rem;">
+            <form method="GET" action="/comm/search" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Zoekterm</label><br>
+                    <input type="search" name="q" value="{html.escape(q)}" placeholder="Zoek in titel, omschrijving, tags..." class="form-control"></div>
+                <div><label style="font-size:0.8rem;font-weight:bold;">Teamlid</label><br>
+                    <select name="uid" class="form-control">{member_opts}</select></div>
+                <div><label style="font-size:0.8rem;font-weight:bold;">Status</label><br>
+                    <select name="status" class="form-control">{stat_opts}</select></div>
+                <div><label style="font-size:0.8rem;font-weight:bold;">Prioriteit</label><br>
+                    <select name="priority" class="form-control">{prio_opts}</select></div>
+                <div><button type="submit" class="btn btn-primary">Zoeken</button>
+                    <a href="/comm/search" style="color:#c2185b;font-size:0.85rem;padding:0.4rem 0.5rem;">Wis</a></div>
+            </form></div>'''
+
+        body += f'<div class="card"><div class="section-title">Resultaten ({len(results)})</div>'
+        if results:
+            body += '<table><thead><tr><th>Taak</th><th>Toegewezen aan</th><th>Doel</th><th>Prioriteit</th><th>Status</th><th>Deadline</th></tr></thead><tbody>'
+            for t in results:
+                ov   = t['due_date'] and t['due_date'] < today_iso and t['status'] not in ('klaar','archief')
+                dc   = '#dc3545' if ov else '#555'
+                pb   = self._priority_badge(t['priority'])
+                sb   = {'backlog':'&#128203; Backlog','bezig':'&#9889; Bezig','klaar':'&#10003; Klaar'}.get(t['status'], t['status'])
+                body += f'<tr><td><strong>{html.escape(t["title"])}</strong>'
+                if t['tags']:
+                    body += f'<br><small style="color:#1565c0;">{html.escape(t["tags"])}</small>'
+                body += f'</td><td>{html.escape(t["assigned_to_name"] or "-")}</td><td>{html.escape(t["goal_title"] or "-")}</td><td>{pb}</td><td>{sb}</td><td style="color:{dc};">{t["due_date"] or "-"}</td></tr>'
+            body += '</tbody></table>'
+        else:
+            body += '<p style="color:#888;">Geen resultaten.</p>'
+        body += '</div>'
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_task_edit(self, task, comm_members, active_goals, user_id: int, username: str) -> None:
+        """Render edit form for a comm task."""
+        member_opts = '<option value="">Niet toegewezen</option>' + ''.join(
+            f'<option value="{m["id"]}"{"selected" if task["assigned_to"]==m["id"] else ""}>{html.escape(m["username"])}</option>' for m in comm_members)
+        goal_opts = '<option value="">Geen doel</option>' + ''.join(
+            f'<option value="{g["id"]}"{"selected" if task["goal_id"]==g["id"] else ""}>{html.escape(g["title"])}</option>' for g in active_goals)
+        def _sel(name, options, current):
+            return ''.join(f'<option value="{v}"{"selected" if current==v else ""}>{l}</option>' for v, l in options)
+        stat_opts = _sel('status', [('backlog','Backlog'),('bezig','Bezig'),('klaar','Klaar')], task['status'])
+        prio_opts = _sel('priority', [('hoog','&#9650; Hoog'),('medium','&#9654; Medium'),('laag','&#9660; Laag')], task['priority'] or 'medium')
+
+        body = html_header('Taak bewerken', True, username, user_id)
+        body += '<h2 class="mt-4">&#9998; Taak bewerken</h2>'
+        body += f'''<div class="card" style="max-width:640px;">
+            <form method="POST" action="/comm/tasks/edit?id={task["id"]}">
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Taak *</label><br>
+                    <input type="text" name="title" value="{html.escape(task["title"])}" required class="form-control"></div>
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Omschrijving</label><br>
+                    <textarea name="description" class="form-control" rows="3">{html.escape(task["description"] or "")}</textarea></div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+                    <div style="flex:1;min-width:120px;"><label style="font-weight:bold;">Toegewezen aan</label><br>
+                        <select name="assigned_to" class="form-control">{member_opts}</select></div>
+                    <div style="flex:1;min-width:120px;"><label style="font-weight:bold;">Doel</label><br>
+                        <select name="goal_id" class="form-control">{goal_opts}</select></div>
+                    <div style="flex:1;min-width:110px;"><label style="font-weight:bold;">Status</label><br>
+                        <select name="status" class="form-control">{stat_opts}</select></div>
+                    <div style="flex:1;min-width:110px;"><label style="font-weight:bold;">Prioriteit</label><br>
+                        <select name="priority" class="form-control">{prio_opts}</select></div>
+                </div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+                    <div style="flex:1;min-width:130px;"><label style="font-weight:bold;">Deadline</label><br>
+                        <input type="date" name="due_date" value="{task["due_date"] or ""}" class="form-control"></div>
+                    <div style="flex:2;min-width:150px;"><label style="font-weight:bold;">Tags (komma-gescheiden)</label><br>
+                        <input type="text" name="tags" value="{html.escape(task["tags"] or "")}" placeholder="bijv. social,pr,intern" class="form-control"></div>
+                </div>
+                <div style="margin-bottom:0.8rem;"><label style="font-weight:bold;">Herinnering / notitie</label><br>
+                    <input type="text" name="reminder_note" value="{html.escape(task["reminder_note"] or "")}" placeholder="Bijv. Wacht op goedkeuring van Jan" class="form-control"></div>
+                <button type="submit" class="btn btn-primary">Opslaan</button>
+                <a href="/comm/board" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
+            </form></div>'''
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_goal_edit(self, goal, user_id: int, username: str) -> None:
+        """Render edit form for a comm goal."""
+        body = html_header('Doel bewerken', True, username, user_id)
+        body += '<h2 class="mt-4">&#9998; Doel bewerken</h2>'
+        body += f'''<div class="card" style="max-width:540px;">
+            <form method="POST" action="/comm/goals/edit?id={goal["id"]}">
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Doel *</label><br>
+                    <input type="text" name="title" value="{html.escape(goal["title"])}" required class="form-control"></div>
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Omschrijving</label><br>
+                    <textarea name="description" class="form-control" rows="3">{html.escape(goal["description"] or "")}</textarea></div>
+                <div style="margin-bottom:0.8rem;"><label style="font-weight:bold;">Streefdatum</label><br>
+                    <input type="date" name="target_date" value="{goal["target_date"] or ""}" class="form-control"></div>
+                <button type="submit" class="btn btn-primary">Opslaan</button>
+                <a href="/comm/goals" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
+            </form></div>'''
+        body += html_footer()
+        self._send_html(body)
 
     def render_comm_task_form(self, user_id: int, username: str) -> None:
-        """Render standalone add-task form for comm team (fallback, normally inline)."""
-        body = html_header('Taak toevoegen', True, username, user_id)
-        body += '<h2 class="mt-4">Taak toevoegen</h2>'
-        body += '<div class="card"><a href="/comm/board" class="btn btn-secondary">&#8592; Terug naar board</a></div>'
-        body += html_footer()
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
-        self.end_headers()
-        self.wfile.write(body.encode('utf-8'))
+        self.respond_redirect('/comm/board')
 
     def render_comm_goal_form(self, user_id: int, username: str) -> None:
-        """Render standalone add-goal form (fallback, normally inline on goals page)."""
-        body = html_header('Doel toevoegen', True, username, user_id)
-        body += '<h2 class="mt-4">Doel toevoegen</h2>'
-        body += '<div class="card"><a href="/comm/goals" class="btn btn-secondary">&#8592; Terug naar doelen</a></div>'
-        body += html_footer()
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
-        self.end_headers()
-        self.wfile.write(body.encode('utf-8'))
+        self.respond_redirect('/comm/goals')
 
 
 def run_server() -> None:
