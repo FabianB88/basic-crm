@@ -264,6 +264,19 @@ def is_admin(user_id: int) -> bool:
         return bool(row and row[0])
 
 
+def is_comm_member(user_id: int) -> bool:
+    """Return True if user is in the communication team or is admin."""
+    if user_id is None:
+        return False
+    if is_admin(user_id):
+        return True
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        cur = conn.cursor()
+        cur.execute('SELECT is_comm FROM users WHERE id = ?', (user_id,))
+        row = cur.fetchone()
+        return bool(row and row[0])
+
+
 def init_db() -> None:
     """Initialize the SQLite database if it doesn't already exist."""
     with sqlite3.connect(DB_PATH, timeout=10) as conn:
@@ -390,6 +403,41 @@ def init_db() -> None:
             cur.execute("ALTER TABLE tasks ADD COLUMN reminder_sent INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
+        # Ensure is_comm column exists on users table (communication team flag)
+        try:
+            cur.execute('SELECT is_comm FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE users ADD COLUMN is_comm INTEGER DEFAULT 0')
+        # Comm tasks: standalone tasks for the communication team (not linked to customers)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS comm_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                status TEXT NOT NULL DEFAULT 'backlog',
+                due_date DATE,
+                assigned_to INTEGER,
+                created_by INTEGER NOT NULL,
+                goal_id INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (goal_id) REFERENCES comm_goals(id) ON DELETE SET NULL
+            );
+        ''')
+        # Comm goals: team objectives with optional target date
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS comm_goals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                target_date DATE,
+                status TEXT NOT NULL DEFAULT 'actief',
+                created_by INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
         # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
         # a type, an optional note and a timestamp.  Interactions are
@@ -715,6 +763,8 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
         # Import link accessible to all logged-in users
         nav_links.append("<a href='/import'>Importeren</a>")
         nav_links.append("<a href='/tasks/search'>Taken zoeken</a>")
+        if uid_int is not None and is_comm_member(uid_int):
+            nav_links.append("<a href='/comm/board'>&#128101; Comm</a>")
         nav_links_left = ''.join(nav_links)
         profile_link = f"<a href='/users/profile?id={user_id}'>Mijn profiel</a>" if user_id else ''
         nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
@@ -1777,7 +1827,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
-                cur.execute('SELECT id, username, email, created_at, is_admin FROM users ORDER BY id ASC')
+                cur.execute('SELECT id, username, email, created_at, is_admin, is_comm FROM users ORDER BY id ASC')
                 users = cur.fetchall()
             self.render_user_list(users, username, user_id)
         elif path == '/users/add':
@@ -1847,6 +1897,27 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     cur.execute('UPDATE users SET is_admin = ? WHERE id = ?', (new_val, uid_toggle_int))
                     conn.commit()
                     log_action(user_id, 'update', 'users', uid_toggle_int, f'is_admin={new_val}')
+            self.respond_redirect('/users')
+        elif path == '/users/toggle-comm':
+            # Toggle communication team membership. Admin only.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            uid_tc = query_params.get('id', [None])[0]
+            try:
+                uid_tc_int = int(uid_tc) if uid_tc else None
+            except ValueError:
+                uid_tc_int = None
+            if uid_tc_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('SELECT is_comm FROM users WHERE id = ?', (uid_tc_int,))
+                    row = cur.fetchone()
+                    if row:
+                        new_val = 0 if row[0] else 1
+                        cur.execute('UPDATE users SET is_comm = ? WHERE id = ?', (new_val, uid_tc_int))
+                        conn.commit()
+                        log_action(user_id, 'update', 'users', uid_tc_int, f'is_comm={new_val}')
             self.respond_redirect('/users')
         elif path == '/users/profile':
             # Personal dashboard: show tasks, customers and recent interactions for one user.
@@ -2052,6 +2123,149 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.respond_redirect('/fields')
             else:
                 self.respond_redirect('/fields')
+        elif path in ('/comm', '/comm/board'):
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_comm_board(user_id, username)
+        elif path == '/comm/goals':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_comm_goals(user_id, username)
+        elif path == '/comm/goals/add':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                target_date = params.get('target_date', [''])[0].strip() or None
+                if title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute(
+                            'INSERT INTO comm_goals (title, description, target_date, created_by) VALUES (?, ?, ?, ?)',
+                            (title, description or None, target_date, user_id))
+                        conn.commit()
+                self.respond_redirect('/comm/goals')
+            else:
+                self.render_comm_goal_form(user_id, username)
+        elif path == '/comm/goals/reopen':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            gid = query_params.get('id', [None])[0]
+            try:
+                gid_int = int(gid) if gid else None
+            except ValueError:
+                gid_int = None
+            if gid_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute("UPDATE comm_goals SET status = 'actief' WHERE id = ?", (gid_int,))
+                    conn.commit()
+            self.respond_redirect('/comm/goals')
+        elif path == '/comm/goals/complete':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            gid = query_params.get('id', [None])[0]
+            try:
+                gid_int = int(gid) if gid else None
+            except ValueError:
+                gid_int = None
+            if gid_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute("UPDATE comm_goals SET status = 'behaald' WHERE id = ?", (gid_int,))
+                    conn.commit()
+            self.respond_redirect('/comm/goals')
+        elif path == '/comm/goals/delete':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            gid = query_params.get('id', [None])[0]
+            try:
+                gid_int = int(gid) if gid else None
+            except ValueError:
+                gid_int = None
+            if gid_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('DELETE FROM comm_goals WHERE id = ?', (gid_int,))
+                    conn.commit()
+            self.respond_redirect('/comm/goals')
+        elif path == '/comm/tasks/add':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                due_date = params.get('due_date', [''])[0].strip() or None
+                assigned_to_raw = params.get('assigned_to', [''])[0].strip()
+                goal_id_raw = params.get('goal_id', [''])[0].strip()
+                status = params.get('status', ['backlog'])[0].strip()
+                if status not in ('backlog', 'bezig', 'klaar'):
+                    status = 'backlog'
+                try:
+                    assigned_to = int(assigned_to_raw) if assigned_to_raw else None
+                except ValueError:
+                    assigned_to = None
+                try:
+                    goal_id = int(goal_id_raw) if goal_id_raw else None
+                except ValueError:
+                    goal_id = None
+                if title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute(
+                            'INSERT INTO comm_tasks (title, description, status, due_date, assigned_to, created_by, goal_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                            (title, description or None, status, due_date, assigned_to, user_id, goal_id))
+                        conn.commit()
+                self.respond_redirect('/comm/board')
+            else:
+                self.render_comm_task_form(user_id, username)
+        elif path == '/comm/tasks/move':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            tid = query_params.get('id', [None])[0]
+            new_status = query_params.get('status', ['backlog'])[0].strip()
+            if new_status not in ('backlog', 'bezig', 'klaar'):
+                new_status = 'backlog'
+            try:
+                tid_int = int(tid) if tid else None
+            except ValueError:
+                tid_int = None
+            if tid_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('UPDATE comm_tasks SET status = ? WHERE id = ?', (new_status, tid_int))
+                    conn.commit()
+            self.respond_redirect('/comm/board')
+        elif path == '/comm/tasks/delete':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            tid = query_params.get('id', [None])[0]
+            try:
+                tid_int = int(tid) if tid else None
+            except ValueError:
+                tid_int = None
+            if tid_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('DELETE FROM comm_tasks WHERE id = ?', (tid_int,))
+                    conn.commit()
+            self.respond_redirect('/comm/board')
         elif path == '/reports':
             # Display reports/dashboard for admin.  Only admin can view.
             if not logged_in or not is_admin(user_id):
@@ -2286,6 +2500,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         if users:
             for user in users:
                 is_admin_user = bool(user['id'] == 1 or user['is_admin'])
+                is_comm_user = bool(user['is_comm'])
                 is_protected = user['id'] == 1  # id=1 can never be demoted
                 delete_btn = '' if is_protected else f'<a href="/users/delete?id={user["id"]}" class="btn btn-sm btn-danger" style="margin-left:0.5rem;" onclick="return confirm(\'Weet je zeker dat je {html.escape(user["username"])} wilt verwijderen?\');">Verwijder</a>'
                 if not is_protected:
@@ -2293,17 +2508,24 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         toggle_btn = f'<a href="/users/toggle-admin?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Admin-rechten verwijderen van {html.escape(user["username"])}?\');">Verwijder admin</a>'
                     else:
                         toggle_btn = f'<a href="/users/toggle-admin?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#c2185b;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} admin maken?\');">Maak admin</a>'
+                    if is_comm_user:
+                        comm_btn = f'<a href="/users/toggle-comm?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Comm-team verwijderen van {html.escape(user["username"])}?\');">&#128101; Comm uit</a>'
+                    else:
+                        comm_btn = f'<a href="/users/toggle-comm?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#7b1fa2;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} aan comm-team toevoegen?\');">&#128101; Comm aan</a>'
                 else:
                     toggle_btn = ''
+                    comm_btn = ''
                 body += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <strong>{html.escape(user['username'])}</strong> ({html.escape(user['email'])})
                         {'<span style="font-size:0.75rem;background:#c2185b;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">admin</span>' if is_admin_user else ''}
+                        {'<span style="font-size:0.75rem;background:#7b1fa2;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">&#128101; comm</span>' if is_comm_user else ''}
                         <div style="font-size:0.8rem; color:#666;">Aangemaakt op {user['created_at'][:10]}</div>
                     </div>
                     <div>
                         <a href="/users/profile?id={user['id']}" class="btn btn-sm btn-secondary">Profiel</a>
                         {toggle_btn}
+                        {comm_btn}
                         {delete_btn}
                     </div>
                 </div>'''
@@ -3320,6 +3542,341 @@ function bulkAction(action){
         else:
             body += '<tr><td colspan="7">Geen logboeken gevonden.</td></tr>'
         body += '</tbody></table></div>'
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+
+    def render_comm_board(self, user_id: int, username: str) -> None:
+        """Render the communication team kanban board with stats."""
+        today_iso = datetime.date.today().isoformat()
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            # All comm tasks with assignee name
+            cur.execute('''
+                SELECT ct.id, ct.title, ct.description, ct.status, ct.due_date,
+                       ct.goal_id, cg.title AS goal_title,
+                       u.username AS assigned_to_name, ct.assigned_to,
+                       cb.username AS created_by_name
+                FROM comm_tasks ct
+                LEFT JOIN users u ON ct.assigned_to = u.id
+                LEFT JOIN users cb ON ct.created_by = cb.id
+                LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
+                ORDER BY COALESCE(ct.due_date, '9999-12-31') ASC, ct.created_at DESC
+            ''')
+            all_tasks = cur.fetchall()
+            # Stats per comm team member
+            cur.execute('''
+                SELECT u.id, u.username,
+                    SUM(CASE WHEN ct.status != 'klaar' THEN 1 ELSE 0 END) AS open_tasks,
+                    SUM(CASE WHEN ct.status = 'klaar' THEN 1 ELSE 0 END) AS done_tasks,
+                    SUM(CASE WHEN ct.status != 'klaar' AND ct.due_date < ? THEN 1 ELSE 0 END) AS overdue_tasks
+                FROM users u
+                LEFT JOIN comm_tasks ct ON ct.assigned_to = u.id
+                WHERE u.is_comm = 1 OR u.is_admin = 1 OR u.id = 1
+                GROUP BY u.id ORDER BY u.username ASC
+            ''', (today_iso,))
+            member_stats = cur.fetchall()
+            # Get all comm members for the add form
+            cur.execute('''
+                SELECT id, username FROM users
+                WHERE is_comm = 1 OR is_admin = 1 OR id = 1
+                ORDER BY username ASC
+            ''')
+            comm_members = cur.fetchall()
+            # Get active goals for task linking
+            cur.execute("SELECT id, title FROM comm_goals WHERE status = 'actief' ORDER BY title ASC")
+            active_goals = cur.fetchall()
+
+        backlog = [t for t in all_tasks if t['status'] == 'backlog']
+        bezig = [t for t in all_tasks if t['status'] == 'bezig']
+        klaar = [t for t in all_tasks if t['status'] == 'klaar']
+
+        body = html_header('Communicatie Board', True, username, user_id)
+        body += '<h2 class="mt-4">&#128101; Communicatie Dashboard</h2>'
+
+        # Navigation tabs
+        body += '''<div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+            <a href="/comm/board" style="background:#c2185b;color:#fff;padding:0.4rem 1rem;border-radius:4px;text-decoration:none;font-weight:bold;">&#9776; Board</a>
+            <a href="/comm/goals" style="background:#fff;color:#c2185b;border:2px solid #c2185b;padding:0.4rem 1rem;border-radius:4px;text-decoration:none;">&#127945; Doelen</a>
+        </div>'''
+
+        # Stats row
+        total_open = len(backlog) + len(bezig)
+        total_overdue = sum(1 for t in all_tasks if t['status'] != 'klaar' and t['due_date'] and t['due_date'] < today_iso)
+        total_done = len(klaar)
+
+        def _stat(val, label, color='#c2185b'):
+            return f'<div class="card" style="flex:1;min-width:110px;text-align:center;padding:0.75rem;"><div style="font-size:1.8rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.85rem;color:#555;">{label}</div></div>'
+
+        body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+        body += _stat(total_open, 'Open taken', '#f57f17')
+        body += _stat(total_overdue, 'Verlopen', '#dc3545' if total_overdue else '#388e3c')
+        body += _stat(total_done, 'Afgerond', '#388e3c')
+        body += _stat(len(active_goals), 'Actieve doelen', '#7b1fa2')
+        body += '</div>'
+
+        # Per-member stats
+        if member_stats:
+            body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128200; Statistieken per teamlid</summary>'
+            body += '<div class="card" style="margin-top:0.25rem;"><table><thead><tr><th>Teamlid</th><th>Open taken</th><th>Verlopen</th><th>Afgerond</th></tr></thead><tbody>'
+            for m in member_stats:
+                overdue_col = '#dc3545' if (m['overdue_tasks'] or 0) > 0 else '#388e3c'
+                body += f'''<tr>
+                    <td>{html.escape(m['username'])}</td>
+                    <td>{m['open_tasks'] or 0}</td>
+                    <td style="color:{overdue_col};font-weight:bold;">{m['overdue_tasks'] or 0}</td>
+                    <td style="color:#388e3c;">{m['done_tasks'] or 0}</td>
+                </tr>'''
+            body += '</tbody></table></div></details>'
+
+        # Quick add task form
+        member_opts = '<option value="">Niet toegewezen</option>' + ''.join(
+            f'<option value="{m["id"]}"{"selected" if m["id"] == user_id else ""}>{html.escape(m["username"])}</option>'
+            for m in comm_members)
+        goal_opts = '<option value="">Geen doel</option>' + ''.join(
+            f'<option value="{g["id"]}">{html.escape(g["title"])}</option>' for g in active_goals)
+        body += f'''<div class="card" style="margin-bottom:1rem;">
+            <div class="section-title">&#43; Nieuwe taak toevoegen</div>
+            <form method="POST" action="/comm/tasks/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:2;min-width:180px;">
+                    <label style="font-size:0.8rem;font-weight:bold;">Taak *</label><br>
+                    <input type="text" name="title" required placeholder="Wat moet er gebeuren?" class="form-control">
+                </div>
+                <div style="flex:1;min-width:130px;">
+                    <label style="font-size:0.8rem;font-weight:bold;">Toegewezen aan</label><br>
+                    <select name="assigned_to" class="form-control">{member_opts}</select>
+                </div>
+                <div style="flex:1;min-width:130px;">
+                    <label style="font-size:0.8rem;font-weight:bold;">Doel (optioneel)</label><br>
+                    <select name="goal_id" class="form-control">{goal_opts}</select>
+                </div>
+                <div style="min-width:130px;">
+                    <label style="font-size:0.8rem;font-weight:bold;">Deadline</label><br>
+                    <input type="date" name="due_date" class="form-control">
+                </div>
+                <div style="min-width:110px;">
+                    <label style="font-size:0.8rem;font-weight:bold;">Kolom</label><br>
+                    <select name="status" class="form-control">
+                        <option value="backlog">Backlog</option>
+                        <option value="bezig">Bezig</option>
+                        <option value="klaar">Klaar</option>
+                    </select>
+                </div>
+                <div>
+                    <button type="submit" class="btn btn-primary" style="padding:0.45rem 1rem;">Toevoegen</button>
+                </div>
+            </form>
+        </div>'''
+
+        # Kanban columns
+        def _task_card(t):
+            is_overdue = t['due_date'] and t['due_date'] < today_iso and t['status'] != 'klaar'
+            date_color = '#dc3545' if is_overdue else '#555'
+            date_str = f'<div style="font-size:0.78rem;color:{date_color};margin-top:0.2rem;">&#128197; {t["due_date"]}{"  &#9888;" if is_overdue else ""}</div>' if t['due_date'] else ''
+            assigned = f'<div style="font-size:0.78rem;color:#888;">&#128100; {html.escape(t["assigned_to_name"])}</div>' if t['assigned_to_name'] else ''
+            goal_badge = f'<div style="font-size:0.72rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.1rem 0.35rem;display:inline-block;margin-top:0.2rem;">&#127945; {html.escape(t["goal_title"])}</div>' if t['goal_title'] else ''
+            desc = f'<div style="font-size:0.8rem;color:#666;margin-top:0.2rem;">{html.escape(t["description"])}</div>' if t['description'] else ''
+
+            # Move buttons
+            move_btns = ''
+            if t['status'] == 'backlog':
+                move_btns = f'<a href="/comm/tasks/move?id={t["id"]}&status=bezig" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:0.72rem;">→ Bezig</a>'
+            elif t['status'] == 'bezig':
+                move_btns = (f'<a href="/comm/tasks/move?id={t["id"]}&status=backlog" class="btn btn-sm btn-secondary" style="font-size:0.72rem;">← Backlog</a> '
+                             f'<a href="/comm/tasks/move?id={t["id"]}&status=klaar" class="btn btn-sm" style="background:#388e3c;color:#fff;font-size:0.72rem;">&#10003; Klaar</a>')
+            elif t['status'] == 'klaar':
+                move_btns = f'<a href="/comm/tasks/move?id={t["id"]}&status=bezig" class="btn btn-sm btn-secondary" style="font-size:0.72rem;">↩ Heropenen</a>'
+
+            del_btn = f'<a href="/comm/tasks/delete?id={t["id"]}" style="float:right;color:#dc3545;font-size:0.8rem;text-decoration:none;" onclick="return confirm(\'Taak verwijderen?\');">&#10005;</a>'
+            return f'''<div style="background:#fff;border-radius:6px;padding:0.65rem 0.75rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+                {del_btn}
+                <div style="font-weight:bold;font-size:0.9rem;">{html.escape(t["title"])}</div>
+                {desc}{goal_badge}{assigned}{date_str}
+                <div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">{move_btns}</div>
+            </div>'''
+
+        col_style = 'flex:1;min-width:240px;background:#f0f0f0;border-radius:8px;padding:0.75rem;'
+        col_title_style = 'font-weight:bold;margin-bottom:0.75rem;font-size:0.95rem;'
+
+        body += '<div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start;">'
+        # Backlog
+        body += f'<div style="{col_style}">'
+        body += f'<div style="{col_title_style}">&#128203; Backlog <span style="background:#888;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.8rem;margin-left:0.3rem;">{len(backlog)}</span></div>'
+        body += ''.join(_task_card(t) for t in backlog) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>'
+        body += '</div>'
+        # Bezig
+        body += f'<div style="{col_style}">'
+        body += f'<div style="{col_title_style}">&#9889; Bezig <span style="background:#1565c0;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.8rem;margin-left:0.3rem;">{len(bezig)}</span></div>'
+        body += ''.join(_task_card(t) for t in bezig) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>'
+        body += '</div>'
+        # Klaar
+        body += f'<div style="{col_style}">'
+        body += f'<div style="{col_title_style}">&#10003; Klaar <span style="background:#388e3c;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.8rem;margin-left:0.3rem;">{len(klaar)}</span></div>'
+        body += ''.join(_task_card(t) for t in klaar) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>'
+        body += '</div>'
+        body += '</div>'
+
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_comm_goals(self, user_id: int, username: str) -> None:
+        """Render the communication team goals page with deliverables (linked tasks)."""
+        today_iso = datetime.date.today().isoformat()
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT g.id, g.title, g.description, g.target_date, g.status,
+                       cb.username AS created_by_name, g.created_at
+                FROM comm_goals g
+                LEFT JOIN users cb ON g.created_by = cb.id
+                ORDER BY g.status ASC, COALESCE(g.target_date, '9999-12-31') ASC
+            ''')
+            goals = cur.fetchall()
+            # Tasks per goal
+            cur.execute('''
+                SELECT ct.id, ct.title, ct.status, ct.due_date, ct.goal_id,
+                       u.username AS assigned_to_name
+                FROM comm_tasks ct
+                LEFT JOIN users u ON ct.assigned_to = u.id
+                WHERE ct.goal_id IS NOT NULL
+                ORDER BY COALESCE(ct.due_date, '9999-12-31') ASC
+            ''')
+            goal_tasks_raw = cur.fetchall()
+
+        # Group tasks by goal_id
+        from collections import defaultdict
+        tasks_by_goal = defaultdict(list)
+        for t in goal_tasks_raw:
+            tasks_by_goal[t['goal_id']].append(t)
+
+        body = html_header('Communicatie Doelen', True, username, user_id)
+        body += '<h2 class="mt-4">&#127945; Communicatie Doelen</h2>'
+
+        # Navigation tabs
+        body += '''<div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+            <a href="/comm/board" style="background:#fff;color:#c2185b;border:2px solid #c2185b;padding:0.4rem 1rem;border-radius:4px;text-decoration:none;">&#9776; Board</a>
+            <a href="/comm/goals" style="background:#c2185b;color:#fff;padding:0.4rem 1rem;border-radius:4px;text-decoration:none;font-weight:bold;">&#127945; Doelen</a>
+        </div>'''
+
+        # Stats
+        actief = [g for g in goals if g['status'] == 'actief']
+        behaald = [g for g in goals if g['status'] == 'behaald']
+        body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+        body += f'<div class="card" style="flex:1;min-width:110px;text-align:center;padding:0.75rem;"><div style="font-size:1.8rem;font-weight:bold;color:#7b1fa2;">{len(actief)}</div><div style="font-size:0.85rem;color:#555;">Actieve doelen</div></div>'
+        body += f'<div class="card" style="flex:1;min-width:110px;text-align:center;padding:0.75rem;"><div style="font-size:1.8rem;font-weight:bold;color:#388e3c;">{len(behaald)}</div><div style="font-size:0.85rem;color:#555;">Behaald</div></div>'
+        body += '</div>'
+
+        # Add goal form
+        body += '''<div class="card" style="margin-bottom:1rem;">
+            <div class="section-title">&#43; Nieuw doel toevoegen</div>
+            <form method="POST" action="/comm/goals/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:2;min-width:180px;">
+                    <label style="font-size:0.8rem;font-weight:bold;">Doel *</label><br>
+                    <input type="text" name="title" required placeholder="Bijv. Q2 campagne afronden" class="form-control">
+                </div>
+                <div style="flex:2;min-width:200px;">
+                    <label style="font-size:0.8rem;font-weight:bold;">Omschrijving</label><br>
+                    <input type="text" name="description" placeholder="Optionele toelichting" class="form-control">
+                </div>
+                <div style="min-width:140px;">
+                    <label style="font-size:0.8rem;font-weight:bold;">Streefdatum</label><br>
+                    <input type="date" name="target_date" class="form-control">
+                </div>
+                <div>
+                    <button type="submit" class="btn btn-primary" style="padding:0.45rem 1rem;">Toevoegen</button>
+                </div>
+            </form>
+        </div>'''
+
+        # Goals list
+        for g in goals:
+            is_done = g['status'] == 'behaald'
+            is_overdue = g['target_date'] and g['target_date'] < today_iso and not is_done
+            date_color = '#dc3545' if is_overdue else ('#388e3c' if is_done else '#555')
+            date_str = f' &nbsp;&#128197; <span style="color:{date_color};">{g["target_date"]}{"  &#9888;" if is_overdue else ""}</span>' if g['target_date'] else ''
+            status_badge = '<span style="background:#e8f5e9;color:#388e3c;border-radius:4px;padding:0.15rem 0.5rem;font-size:0.8rem;">&#10003; Behaald</span>' if is_done else '<span style="background:#ede7f6;color:#7b1fa2;border-radius:4px;padding:0.15rem 0.5rem;font-size:0.8rem;">Actief</span>'
+            desc = f'<div style="font-size:0.85rem;color:#666;margin:0.3rem 0;">{html.escape(g["description"])}</div>' if g['description'] else ''
+
+            if is_done:
+                action_btn = f'<a href="/comm/goals/reopen?id={g["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;">↩ Heropenen</a>'
+            else:
+                action_btn = f'<a href="/comm/goals/complete?id={g["id"]}" class="btn btn-sm" style="background:#388e3c;color:#fff;margin-left:0.5rem;" onclick="return confirm(\'Doel als behaald markeren?\');">&#10003; Behaald</a>'
+            del_btn = f'<a href="/comm/goals/delete?id={g["id"]}" class="btn btn-sm btn-danger" style="margin-left:0.5rem;" onclick="return confirm(\'Doel verwijderen? Taken worden losgekoppeld.\');">Verwijder</a>'
+
+            gtasks = tasks_by_goal.get(g['id'], [])
+            done_count = sum(1 for t in gtasks if t['status'] == 'klaar')
+            progress_pct = int(done_count / len(gtasks) * 100) if gtasks else 0
+            progress_bar = ''
+            if gtasks:
+                progress_bar = f'''<div style="margin:0.5rem 0;">
+                    <div style="font-size:0.78rem;color:#666;margin-bottom:0.2rem;">Deliverables: {done_count}/{len(gtasks)} klaar ({progress_pct}%)</div>
+                    <div style="background:#e0e0e0;border-radius:4px;height:8px;"><div style="background:#7b1fa2;border-radius:4px;height:8px;width:{progress_pct}%;"></div></div>
+                </div>'''
+
+            body += f'''<div class="card" style="opacity:{'0.7' if is_done else '1'};">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;">
+                    <div style="flex:1;">
+                        <span style="font-size:1rem;font-weight:bold;">&#127945; {html.escape(g["title"])}</span>
+                        &nbsp;{status_badge}{date_str}
+                        {desc}
+                        {progress_bar}
+                    </div>
+                    <div style="white-space:nowrap;margin-top:0.25rem;">
+                        {action_btn}{del_btn}
+                    </div>
+                </div>'''
+
+            # Deliverables (tasks linked to this goal)
+            if gtasks:
+                body += '<div style="margin-top:0.75rem;border-top:1px solid #eee;padding-top:0.5rem;">'
+                body += '<div style="font-size:0.8rem;font-weight:bold;color:#7b1fa2;margin-bottom:0.35rem;">Deliverables / Taken</div>'
+                for t in gtasks:
+                    t_done = t['status'] == 'klaar'
+                    t_overdue = t['due_date'] and t['due_date'] < today_iso and not t_done
+                    t_date = f' <small style="color:{"#dc3545" if t_overdue else "#888"};">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
+                    t_assigned = f' <small style="color:#888;">&#128100; {html.escape(t["assigned_to_name"])}</small>' if t['assigned_to_name'] else ''
+                    t_status_icon = '&#10003;' if t_done else ('&#9889;' if t['status'] == 'bezig' else '&#9675;')
+                    t_color = '#388e3c' if t_done else ('#1565c0' if t['status'] == 'bezig' else '#888')
+                    body += f'<div style="padding:0.25rem 0;font-size:0.85rem;border-bottom:1px solid #f5f5f5;"><span style="color:{t_color};">{t_status_icon}</span> {html.escape(t["title"])}{t_assigned}{t_date}</div>'
+                body += '</div>'
+            elif not is_done:
+                body += f'<div style="margin-top:0.5rem;font-size:0.8rem;color:#aaa;">Nog geen deliverables — voeg taken toe via het <a href="/comm/board" style="color:#7b1fa2;">board</a> en koppel ze aan dit doel.</div>'
+
+            body += '</div>'
+
+        if not goals:
+            body += '<div class="card"><p style="color:#888;">Nog geen doelen. Voeg het eerste doel toe!</p></div>'
+
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_comm_task_form(self, user_id: int, username: str) -> None:
+        """Render standalone add-task form for comm team (fallback, normally inline)."""
+        body = html_header('Taak toevoegen', True, username, user_id)
+        body += '<h2 class="mt-4">Taak toevoegen</h2>'
+        body += '<div class="card"><a href="/comm/board" class="btn btn-secondary">&#8592; Terug naar board</a></div>'
+        body += html_footer()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(body.encode('utf-8'))
+
+    def render_comm_goal_form(self, user_id: int, username: str) -> None:
+        """Render standalone add-goal form (fallback, normally inline on goals page)."""
+        body = html_header('Doel toevoegen', True, username, user_id)
+        body += '<h2 class="mt-4">Doel toevoegen</h2>'
+        body += '<div class="card"><a href="/comm/goals" class="btn btn-secondary">&#8592; Terug naar doelen</a></div>'
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
