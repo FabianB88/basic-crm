@@ -4673,8 +4673,10 @@ function bulkAction(action){
         def _stat(v, l, c='#c2185b'):
             return f'<div class="card" style="flex:1;min-width:90px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:{c};">{v}</div><div style="font-size:0.78rem;color:#555;">{l}</div></div>'
         body += '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">'
+        soon_cnt = len(soon_tasks) + len(today_due)
         body += _stat(len(my_open), 'Open taken', '#f57f17')
         body += _stat(overdue_cnt, 'Verlopen', '#dc3545' if overdue_cnt else '#388e3c')
+        body += _stat(soon_cnt, 'Bijna deadline', '#ef6c00' if soon_cnt else '#388e3c')
         body += _stat(len(my_done), 'Afgerond', '#388e3c')
         body += _stat(len(my_goals), 'Doelen', '#7b1fa2')
         body += '</div>'
