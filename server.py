@@ -507,6 +507,12 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         ''')
+        # Add board_status to comm_content if missing (allows showing content on kanban board)
+        try:
+            cur.execute('SELECT board_status FROM comm_content LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE comm_content ADD COLUMN board_status TEXT')
+
         # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
         # a type, an optional note and a timestamp.  Interactions are
@@ -2774,6 +2780,33 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         conn.commit()
             self.respond_redirect('/comm/board')
 
+        elif path == '/comm/content/board-status':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            cid_raw = query_params.get('id', [''])[0]
+            new_bs = query_params.get('status', [''])[0].strip()
+            try:
+                cid_int = int(cid_raw)
+            except ValueError:
+                self.respond_redirect('/comm/content')
+                return
+            allowed_bs = ('backlog', 'bezig', 'klaar', '')
+            if new_bs not in allowed_bs:
+                new_bs = ''
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                cur = conn.cursor()
+                cur.execute('UPDATE comm_content SET board_status=? WHERE id=?', (new_bs or None, cid_int))
+                conn.commit()
+            self.respond_redirect('/comm/content')
+
+        # ── Overzicht ─────────────────────────────────────────────────────────
+        elif path == '/comm/overview':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_comm_overview(user_id, username)
+
         # ── Profiel bewerken ─────────────────────────────────────────────────
         elif path == '/comm/profile/edit':
             if not logged_in or not is_comm_member(user_id):
@@ -2799,11 +2832,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     avatar_color = '#c2185b'
                 with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
-                    cur.execute('''INSERT INTO comm_profiles (user_id, role_title, bio, skills, avatar_color, updated_at)
-                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                        ON CONFLICT(user_id) DO UPDATE SET role_title=excluded.role_title, bio=excluded.bio,
-                        skills=excluded.skills, avatar_color=excluded.avatar_color, updated_at=CURRENT_TIMESTAMP''',
-                        (target_id, role_title, bio, skills, avatar_color))
+                    cur.execute('SELECT user_id FROM comm_profiles WHERE user_id=?', (target_id,))
+                    if cur.fetchone():
+                        cur.execute('UPDATE comm_profiles SET role_title=?, bio=?, skills=?, avatar_color=?, updated_at=CURRENT_TIMESTAMP WHERE user_id=?',
+                            (role_title, bio, skills, avatar_color, target_id))
+                    else:
+                        cur.execute('INSERT INTO comm_profiles (user_id, role_title, bio, skills, avatar_color, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+                            (target_id, role_title, bio, skills, avatar_color))
                     conn.commit()
                 self.respond_redirect(f'/comm/profile?id={target_id}')
             else:
@@ -4108,6 +4143,7 @@ function bulkAction(action){
             ('/comm/board', '&#9776; Board', 'board'),
             ('/comm/goals', '&#127945; Doelen', 'goals'),
             ('/comm/week', '&#128197; Week', 'week'),
+            ('/comm/overview', '&#128203; Overzicht', 'overview'),
             (f'/comm/profile?id={user_id}', '&#128100; Mijn profiel', 'profile'),
             ('/comm/search', '&#128269; Zoeken', 'search'),
             ('/comm/dates', '&#128197; Datums', 'dates'),
@@ -4170,10 +4206,19 @@ function bulkAction(action){
             comm_members = cur.fetchall()
             cur.execute("SELECT id, title FROM comm_goals WHERE status='actief' ORDER BY title")
             active_goals = cur.fetchall()
+            cur.execute('''SELECT cc.id, cc.title, cc.platform, cc.publish_date, cc.board_status,
+                           u.username AS assigned_to_name
+                           FROM comm_content cc LEFT JOIN users u ON cc.assigned_to = u.id
+                           WHERE cc.board_status IS NOT NULL AND cc.board_status != ''
+                           ORDER BY COALESCE(cc.publish_date,'9999-12-31') ASC''')
+            board_content = cur.fetchall()
 
         backlog = [t for t in all_tasks if t['status'] == 'backlog']
         bezig   = [t for t in all_tasks if t['status'] == 'bezig']
         klaar   = [t for t in all_tasks if t['status'] == 'klaar']
+        board_content_backlog = [c for c in board_content if c['board_status'] == 'backlog']
+        board_content_bezig   = [c for c in board_content if c['board_status'] == 'bezig']
+        board_content_klaar   = [c for c in board_content if c['board_status'] == 'klaar']
 
         body = html_header('Communicatie Board', True, username, user_id)
         body += '<h2 class="mt-4">&#128101; Communicatie Dashboard</h2>'
@@ -4285,15 +4330,36 @@ function bulkAction(action){
                 <div style="margin-top:0.4rem;display:flex;gap:0.3rem;flex-wrap:wrap;">{move}</div>
             </div>'''
 
+        def _content_board_card(c):
+            platform_colors = {'instagram':'#e91e63','linkedin':'#0077b5','website':'#388e3c','email':'#f57f17','overig':'#7b1fa2'}
+            col = platform_colors.get(c['platform'], '#7b1fa2')
+            asgn = f'<span style="font-size:0.72rem;color:#888;">&#128100; {html.escape(c["assigned_to_name"])}</span>' if c['assigned_to_name'] else ''
+            date_html = f'<span style="font-size:0.72rem;color:#888;">&#128197; {c["publish_date"]}</span>' if c['publish_date'] else ''
+            bs_opts = ''.join(f'<option value="{v}"{"selected" if c["board_status"]==v else ""}>{l}</option>'
+                for v, l in [('backlog','Backlog'),('bezig','Bezig'),('klaar','Klaar'),('','Verwijder uit board')])
+            move_sel = f'''<form method="GET" action="/comm/content/board-status" style="display:inline;">
+                <input type="hidden" name="id" value="{c["id"]}">
+                <select name="status" style="font-size:0.68rem;padding:0.1rem;" onchange="this.form.submit()">{bs_opts}</select></form>'''
+            return f'''<div style="background:#fff;border-radius:6px;padding:0.5rem 0.65rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.08);border-left:3px solid {col};opacity:0.92;">
+                <div style="font-size:0.82rem;font-weight:bold;">&#128240; {html.escape(c["title"])}</div>
+                <div style="display:flex;gap:0.3rem;align-items:center;margin-top:0.25rem;flex-wrap:wrap;">{asgn}{date_html}{move_sel}</div>
+            </div>'''
+
         cs = 'flex:1;min-width:240px;background:#f0f0f0;border-radius:8px;padding:0.75rem;transition:background 0.15s;'
         body += '<div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start;">'
-        body += f'<div class="comm-column" data-status="backlog" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#128203; Backlog <span style="background:#888;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(backlog)}</span></div>'
-        body += (''.join(_task_card(t) for t in backlog) or '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>') + '</div>'
-        body += f'<div class="comm-column" data-status="bezig" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#9889; Bezig <span style="background:#1565c0;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(bezig)}</span></div>'
-        body += (''.join(_task_card(t) for t in bezig) or '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>') + '</div>'
-        body += f'<div class="comm-column" data-status="klaar" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#10003; Klaar <span style="background:#388e3c;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(klaar)}</span></div>'
-        if klaar:
-            body += ''.join(_task_card(t) for t in klaar)
+        backlog_total = len(backlog) + len(board_content_backlog)
+        bezig_total   = len(bezig)   + len(board_content_bezig)
+        klaar_total   = len(klaar)   + len(board_content_klaar)
+        body += f'<div class="comm-column" data-status="backlog" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#128203; Backlog <span style="background:#888;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{backlog_total}</span></div>'
+        body += (''.join(_task_card(t) for t in backlog) + ''.join(_content_board_card(c) for c in board_content_backlog)) or '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>'
+        body += '</div>'
+        body += f'<div class="comm-column" data-status="bezig" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#9889; Bezig <span style="background:#1565c0;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{bezig_total}</span></div>'
+        body += (''.join(_task_card(t) for t in bezig) + ''.join(_content_board_card(c) for c in board_content_bezig)) or '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>'
+        body += '</div>'
+        body += f'<div class="comm-column" data-status="klaar" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#10003; Klaar <span style="background:#388e3c;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{klaar_total}</span></div>'
+        klaar_html = ''.join(_task_card(t) for t in klaar) + ''.join(_content_board_card(c) for c in board_content_klaar)
+        if klaar_html:
+            body += klaar_html
             body += f'<div style="margin-top:0.5rem;"><a href="/comm/tasks/archive-done" class="btn btn-sm btn-secondary" onclick="return confirm(\'Alle afgeronde taken archiveren?\');">&#128452; Archiveer alle ({len(klaar)})</a></div>'
         else:
             body += '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>'
@@ -4483,7 +4549,7 @@ function bulkAction(action){
         def _week_row(t, highlight=''):
             pb   = self._priority_badge(t['priority'])
             asgn = f'<span style="color:#888;font-size:0.78rem;">&#128100; {html.escape(t["assigned_to_name"])}</span>' if t['assigned_to_name'] else ''
-            goal = f'<span style="font-size:0.72rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"])}</span>' if t.get('goal_title') else ''
+            goal = f'<span style="font-size:0.72rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"])}</span>' if t['goal_title'] else ''
             return f'<div style="padding:0.45rem 0;border-bottom:1px solid #eee;display:flex;gap:0.5rem;align-items:center;{highlight}"><span style="min-width:70px;font-size:0.78rem;color:#888;">{t["due_date"] or ""}</span> <span style="flex:1;font-weight:bold;font-size:0.88rem;">{html.escape(t["title"])}</span> {pb} {goal} {asgn}</div>'
 
         def _section(title, tasks, bg='#fff', border='#ddd'):
@@ -4585,8 +4651,16 @@ function bulkAction(action){
             ov  = t['due_date'] and t['due_date'] < today_iso and t['status'] not in ('klaar','archief')
             dc  = '#dc3545' if ov else '#555'
             dat = f'<small style="color:{dc};">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
-            gl  = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t.get("goal_title",""))}</span>' if t.get('goal_title') else ''
+            gl  = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"] or "")}</span>' if t['goal_title'] else ''
             return f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;display:flex;gap:0.4rem;align-items:center;"><span style="flex:1;font-size:0.86rem;">{html.escape(t["title"])}</span>{pb}{gl}{dat}</div>'
+
+        # Reminders
+        reminders_with_note = [t for t in my_open if t['reminder_note']]
+        if reminders_with_note:
+            body += '<div class="card" style="border-left:4px solid #388e3c;"><div class="section-title">&#128276; Herinneringen</div>'
+            for t in reminders_with_note:
+                body += f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;font-size:0.85rem;"><strong>{html.escape(t["title"])}</strong>: <span style="color:#388e3c;">{html.escape(t["reminder_note"])}</span></div>'
+            body += '</div>'
 
         # Open tasks
         body += '<div class="card"><div class="section-title">Open taken</div>'
@@ -4618,6 +4692,99 @@ function bulkAction(action){
                 body += f'<div style="padding:0.3rem 0;border-bottom:1px solid #eee;font-size:0.83rem;color:#388e3c;">&#10003; {html.escape(t["title"])}</div>'
             body += '</div>'
 
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_overview(self, user_id: int, username: str) -> None:
+        """Render a combined overview of upcoming tasks, dates and content items."""
+        today = datetime.date.today()
+        today_iso = today.isoformat()
+        horizon = (today + datetime.timedelta(days=30)).isoformat()
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''SELECT ct.id, ct.title, ct.due_date, ct.priority, ct.status,
+                           u.username AS assigned_to_name
+                           FROM comm_tasks ct LEFT JOIN users u ON ct.assigned_to = u.id
+                           WHERE ct.status NOT IN ('klaar','archief') AND ct.due_date IS NOT NULL
+                           AND ct.due_date <= ? ORDER BY ct.due_date ASC''', (horizon,))
+            upcoming_tasks = cur.fetchall()
+            cur.execute('''SELECT id, title, event_date, event_type FROM comm_dates
+                           WHERE event_date >= ? AND event_date <= ?
+                           ORDER BY event_date ASC''', (today_iso, horizon))
+            upcoming_dates = cur.fetchall()
+            cur.execute('''SELECT cc.id, cc.title, cc.platform, cc.publish_date, cc.status,
+                           u.username AS assigned_to_name
+                           FROM comm_content cc LEFT JOIN users u ON cc.assigned_to = u.id
+                           WHERE cc.publish_date IS NOT NULL AND cc.publish_date >= ?
+                           AND cc.publish_date <= ? AND cc.status != 'gepubliceerd'
+                           ORDER BY cc.publish_date ASC''', (today_iso, horizon))
+            upcoming_content = cur.fetchall()
+
+        body = html_header('Overzicht', True, username, user_id)
+        body += '<h2 class="mt-4">&#128203; Overzicht — komende 30 dagen</h2>'
+        body += self._comm_nav('overview', user_id)
+
+        # Build combined timeline
+        items = []
+        for t in upcoming_tasks:
+            overdue = t['due_date'] < today_iso
+            items.append((t['due_date'], 'task', t, overdue))
+        for d in upcoming_dates:
+            items.append((d['event_date'], 'date', d, False))
+        for c in upcoming_content:
+            overdue = c['publish_date'] < today_iso
+            items.append((c['publish_date'], 'content', c, overdue))
+        items.sort(key=lambda x: x[0])
+
+        if not items:
+            body += '<div class="card"><p style="color:#888;">Geen aankomende items in de komende 30 dagen. &#127881;</p></div>'
+        else:
+            body += '<div class="card" style="padding:0;">'
+            prev_date = None
+            for date_str, kind, item, overdue in items:
+                if date_str != prev_date:
+                    days_diff = (datetime.date.fromisoformat(date_str) - today).days
+                    if days_diff < 0:
+                        day_label = f'&#9888; {abs(days_diff)} dag{"" if abs(days_diff)==1 else "en"} geleden'
+                        hdr_color = '#dc3545'
+                    elif days_diff == 0:
+                        day_label = 'Vandaag'
+                        hdr_color = '#f57f17'
+                    elif days_diff == 1:
+                        day_label = 'Morgen'
+                        hdr_color = '#1565c0'
+                    else:
+                        day_label = f'Over {days_diff} dagen'
+                        hdr_color = '#555'
+                    d_obj = datetime.date.fromisoformat(date_str)
+                    body += f'<div style="background:#f8f9fa;padding:0.4rem 0.9rem;font-size:0.78rem;font-weight:bold;color:{hdr_color};border-bottom:1px solid #eee;">&#128197; {d_obj.strftime("%d %b %Y")} — {day_label}</div>'
+                    prev_date = date_str
+                if kind == 'task':
+                    pb = self._priority_badge(item['priority'])
+                    asgn = f'<span style="font-size:0.72rem;color:#888;">&#128100; {html.escape(item["assigned_to_name"])}</span>' if item['assigned_to_name'] else ''
+                    ov_style = 'color:#dc3545;' if overdue else ''
+                    body += f'<div style="padding:0.45rem 0.9rem;border-bottom:1px solid #f0f0f0;display:flex;gap:0.4rem;align-items:center;"><span style="font-size:0.75rem;background:#fff3e0;color:#f57f17;border-radius:3px;padding:0.05rem 0.3rem;">&#128203; Taak</span> <a href="/comm/board" style="flex:1;font-size:0.86rem;font-weight:bold;{ov_style}color:inherit;text-decoration:none;">{html.escape(item["title"])}</a> {pb} {asgn}</div>'
+                elif kind == 'date':
+                    type_icons = {'deadline':'&#9888;','milestone':'&#127937;','event':'&#127881;'}
+                    icon = type_icons.get(item['event_type'], '&#128197;')
+                    body += f'<div style="padding:0.45rem 0.9rem;border-bottom:1px solid #f0f0f0;display:flex;gap:0.4rem;align-items:center;"><span style="font-size:0.75rem;background:#fce4ec;color:#c2185b;border-radius:3px;padding:0.05rem 0.3rem;">{icon} Datum</span> <a href="/comm/dates" style="flex:1;font-size:0.86rem;font-weight:bold;color:inherit;text-decoration:none;">{html.escape(item["title"])}</a></div>'
+                elif kind == 'content':
+                    platform_icons = {'instagram':'&#128247;','linkedin':'&#128188;','website':'&#127760;','email':'&#128140;','overig':'&#128204;'}
+                    icon = platform_icons.get(item['platform'], '&#128204;')
+                    asgn = f'<span style="font-size:0.72rem;color:#888;">&#128100; {html.escape(item["assigned_to_name"])}</span>' if item['assigned_to_name'] else ''
+                    ov_style = 'color:#dc3545;' if overdue else ''
+                    body += f'<div style="padding:0.45rem 0.9rem;border-bottom:1px solid #f0f0f0;display:flex;gap:0.4rem;align-items:center;"><span style="font-size:0.75rem;background:#e3f2fd;color:#1565c0;border-radius:3px;padding:0.05rem 0.3rem;">{icon} Content</span> <a href="/comm/content" style="flex:1;font-size:0.86rem;font-weight:bold;{ov_style}color:inherit;text-decoration:none;">{html.escape(item["title"])}</a> {asgn}</div>'
+            body += '</div>'
+
+        # Quick stats
+        n_overdue = sum(1 for d, k, i, ov in items if ov)
+        n_today   = sum(1 for d, k, i, ov in items if d == today_iso)
+        body += f'<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;">'
+        body += f'<div class="card" style="flex:1;min-width:90px;text-align:center;padding:0.6rem;"><div style="font-size:1.4rem;font-weight:bold;color:#dc3545;">{n_overdue}</div><div style="font-size:0.78rem;color:#555;">Verlopen</div></div>'
+        body += f'<div class="card" style="flex:1;min-width:90px;text-align:center;padding:0.6rem;"><div style="font-size:1.4rem;font-weight:bold;color:#f57f17;">{n_today}</div><div style="font-size:0.78rem;color:#555;">Vandaag</div></div>'
+        body += f'<div class="card" style="flex:1;min-width:90px;text-align:center;padding:0.6rem;"><div style="font-size:1.4rem;font-weight:bold;color:#388e3c;">{len(items)}</div><div style="font-size:0.78rem;color:#555;">Totaal (30d)</div></div>'
+        body += '</div>'
         body += html_footer()
         self._send_html(body)
 
@@ -4898,7 +5065,8 @@ function bulkAction(action){
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute('''SELECT cc.id, cc.title, cc.description, cc.platform, cc.publish_date,
-                           cc.status, cc.tags, u.username AS assigned_to_name, cc.assigned_to
+                           cc.status, cc.tags, u.username AS assigned_to_name, cc.assigned_to,
+                           cc.board_status
                            FROM comm_content cc LEFT JOIN users u ON cc.assigned_to = u.id
                            ORDER BY COALESCE(cc.publish_date,'9999-12-31') ASC, cc.created_at DESC''')
             all_items = cur.fetchall()
@@ -4976,14 +5144,24 @@ function bulkAction(action){
             del_btn  = f'<a href="/comm/content/delete?id={item["id"]}" style="color:#dc3545;font-size:0.78rem;text-decoration:none;" onclick="return confirm(\'Verwijderen?\');">&#10005;</a>'
             task_btn = f'<a href="/comm/content/to-task?id={item["id"]}" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:0.68rem;margin-top:0.3rem;" onclick="return confirm(\'Als taak toevoegen aan board?\');">→ Taak</a>'
 
+            bs = item['board_status'] or ''
+            bs_options = ''.join(
+                f'<option value="{v}"{"selected" if bs==v else ""}>{l}</option>'
+                for v, l in [('','— Niet in board'),('backlog','Board: Backlog'),('bezig','Board: Bezig'),('klaar','Board: Klaar')])
+            board_sel = f'''<form method="GET" action="/comm/content/board-status" style="display:inline;">
+                <input type="hidden" name="id" value="{item["id"]}">
+                <select name="status" class="form-control" style="display:inline;width:auto;font-size:0.72rem;padding:0.1rem 0.25rem;" onchange="this.form.submit()">
+                {bs_options}</select></form>'''
+            bs_badge = f' <span style="font-size:0.68rem;background:#1565c0;color:#fff;border-radius:3px;padding:0.05rem 0.3rem;">&#9776; {bs.capitalize()}</span>' if bs else ''
+
             return f'''<div style="background:#fff;border-radius:6px;padding:0.6rem 0.7rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);border-left:3px solid {color};">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                    <div style="font-size:0.88rem;font-weight:bold;flex:1;">{html.escape(item["title"])}</div>
+                    <div style="font-size:0.88rem;font-weight:bold;flex:1;">{html.escape(item["title"])}{bs_badge}</div>
                     <div>{edit_btn}{del_btn}</div>
                 </div>
                 <div style="margin:0.2rem 0;"><span style="background:{bg};color:{color};border-radius:3px;padding:0.05rem 0.35rem;font-size:0.73rem;">{icon} {item["platform"].capitalize()}</span> {tags_html}</div>
                 {assigned}{date_html}
-                <div style="margin-top:0.4rem;display:flex;gap:0.3rem;flex-wrap:wrap;">{move_btns} {task_btn}</div>
+                <div style="margin-top:0.4rem;display:flex;gap:0.3rem;flex-wrap:wrap;align-items:center;">{move_btns} {task_btn} {board_sel}</div>
             </div>'''
 
         cs = 'flex:1;min-width:220px;background:#f0f0f0;border-radius:8px;padding:0.75rem;'
