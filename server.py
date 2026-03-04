@@ -3941,7 +3941,7 @@ function bulkAction(action){
 
             edit_btn = f'<a href="/comm/tasks/edit?id={t["id"]}" style="color:#1565c0;font-size:0.78rem;text-decoration:none;margin-right:0.4rem;">&#9998;</a>'
             del_btn  = f'<a href="/comm/tasks/delete?id={t["id"]}" style="color:#dc3545;font-size:0.78rem;text-decoration:none;" onclick="return confirm(\'Taak verwijderen?\');">&#10005;</a>'
-            return f'''<div style="background:#fff;border-radius:6px;padding:0.6rem 0.7rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);{border_left}">
+            return f'''<div class="comm-card" draggable="true" data-task-id="{t['id']}" data-status="{t['status']}" style="background:#fff;border-radius:6px;padding:0.6rem 0.7rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);cursor:grab;{border_left}">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;">
                     <div style="font-weight:bold;font-size:0.88rem;flex:1;">{html.escape(t["title"])}</div>
                     <div style="white-space:nowrap;margin-left:0.5rem;">{edit_btn}{del_btn}</div>
@@ -3952,19 +3952,77 @@ function bulkAction(action){
                 <div style="margin-top:0.4rem;display:flex;gap:0.3rem;flex-wrap:wrap;">{move}</div>
             </div>'''
 
-        cs = 'flex:1;min-width:240px;background:#f0f0f0;border-radius:8px;padding:0.75rem;'
+        cs = 'flex:1;min-width:240px;background:#f0f0f0;border-radius:8px;padding:0.75rem;transition:background 0.15s;'
         body += '<div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start;">'
-        body += f'<div style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#128203; Backlog <span style="background:#888;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(backlog)}</span></div>'
-        body += (''.join(_task_card(t) for t in backlog) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>') + '</div>'
-        body += f'<div style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#9889; Bezig <span style="background:#1565c0;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(bezig)}</span></div>'
-        body += (''.join(_task_card(t) for t in bezig) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>') + '</div>'
-        body += f'<div style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#10003; Klaar <span style="background:#388e3c;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(klaar)}</span></div>'
+        body += f'<div class="comm-column" data-status="backlog" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#128203; Backlog <span style="background:#888;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(backlog)}</span></div>'
+        body += (''.join(_task_card(t) for t in backlog) or '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>') + '</div>'
+        body += f'<div class="comm-column" data-status="bezig" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#9889; Bezig <span style="background:#1565c0;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(bezig)}</span></div>'
+        body += (''.join(_task_card(t) for t in bezig) or '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>') + '</div>'
+        body += f'<div class="comm-column" data-status="klaar" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#10003; Klaar <span style="background:#388e3c;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(klaar)}</span></div>'
         if klaar:
             body += ''.join(_task_card(t) for t in klaar)
             body += f'<div style="margin-top:0.5rem;"><a href="/comm/tasks/archive-done" class="btn btn-sm btn-secondary" onclick="return confirm(\'Alle afgeronde taken archiveren?\');">&#128452; Archiveer alle ({len(klaar)})</a></div>'
         else:
-            body += '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>'
+            body += '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>'
         body += '</div></div>'
+
+        body += '''<script>
+(function() {
+    var dragging = null;
+
+    document.querySelectorAll('.comm-card').forEach(function(card) {
+        card.addEventListener('dragstart', function(e) {
+            dragging = card;
+            setTimeout(function() { card.style.opacity = '0.45'; }, 0);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', card.dataset.taskId);
+        });
+        card.addEventListener('dragend', function() {
+            card.style.opacity = '1';
+            dragging = null;
+            document.querySelectorAll('.comm-column').forEach(function(col) {
+                col.style.background = '#f0f0f0';
+                col.style.outline = '';
+            });
+        });
+    });
+
+    document.querySelectorAll('.comm-column').forEach(function(col) {
+        col.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            col.style.background = '#dceeff';
+            col.style.outline = '2px dashed #1565c0';
+        });
+        col.addEventListener('dragleave', function(e) {
+            if (!col.contains(e.relatedTarget)) {
+                col.style.background = '#f0f0f0';
+                col.style.outline = '';
+            }
+        });
+        col.addEventListener('drop', function(e) {
+            e.preventDefault();
+            col.style.background = '#f0f0f0';
+            col.style.outline = '';
+            if (!dragging) return;
+            var taskId = dragging.dataset.taskId;
+            var newStatus = col.dataset.status;
+            var oldStatus = dragging.dataset.status;
+            if (newStatus === oldStatus) return;
+            // Optimistic UI: move card immediately
+            var emptyEl = col.querySelector('.comm-empty');
+            if (emptyEl) emptyEl.remove();
+            col.appendChild(dragging);
+            dragging.dataset.status = newStatus;
+            // Send to server
+            fetch('/comm/tasks/move?id=' + taskId + '&status=' + newStatus)
+                .then(function(r) { if (!r.ok) window.location.reload(); })
+                .catch(function() { window.location.reload(); });
+        });
+    });
+})();
+</script>'''
+
         body += html_footer()
         self._send_html(body)
 
