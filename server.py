@@ -465,6 +465,48 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         ''')
+        # Comm dates: important dates, events, deadlines, milestones
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS comm_dates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                date DATE NOT NULL,
+                type TEXT NOT NULL DEFAULT 'event',
+                created_by INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
+        # Comm content calendar: content items per platform/channel
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS comm_content (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                platform TEXT DEFAULT 'overig',
+                publish_date DATE,
+                status TEXT NOT NULL DEFAULT 'idee',
+                assigned_to INTEGER,
+                created_by INTEGER NOT NULL,
+                tags TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
+        # Comm profiles: extended profile info per comm team member
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS comm_profiles (
+                user_id INTEGER PRIMARY KEY,
+                role_title TEXT,
+                bio TEXT,
+                skills TEXT,
+                avatar_color TEXT DEFAULT '#c2185b',
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
         # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
         # a type, an optional note and a timestamp.  Interactions are
@@ -2488,6 +2530,295 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     cur.execute('DELETE FROM comm_tasks WHERE id = ?', (tid_int,))
                     conn.commit()
             self.respond_redirect('/comm/board')
+
+        # ── Belangrijke Datums ───────────────────────────────────────────────
+        elif path == '/comm/dates':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_comm_dates(user_id, username)
+        elif path == '/comm/dates/add':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                date_val = params.get('date', [''])[0].strip()
+                dtype = params.get('type', ['event'])[0].strip()
+                if dtype not in ('event', 'deadline', 'mijlpaal'):
+                    dtype = 'event'
+                if title and date_val:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('INSERT INTO comm_dates (title, description, date, type, created_by) VALUES (?, ?, ?, ?, ?)',
+                                    (title, description or None, date_val, dtype, user_id))
+                        conn.commit()
+            self.respond_redirect('/comm/dates')
+        elif path == '/comm/dates/edit':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            did = query_params.get('id', [None])[0]
+            try:
+                did_int = int(did) if did else None
+            except ValueError:
+                did_int = None
+            if not did_int:
+                self.respond_redirect('/comm/dates')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                date_val = params.get('date', [''])[0].strip()
+                dtype = params.get('type', ['event'])[0].strip()
+                if dtype not in ('event', 'deadline', 'mijlpaal'):
+                    dtype = 'event'
+                if title and date_val:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('UPDATE comm_dates SET title=?, description=?, date=?, type=? WHERE id=?',
+                                    (title, description or None, date_val, dtype, did_int))
+                        conn.commit()
+                self.respond_redirect('/comm/dates')
+            else:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT * FROM comm_dates WHERE id = ?', (did_int,))
+                    date_row = cur.fetchone()
+                if not date_row:
+                    self.respond_redirect('/comm/dates')
+                    return
+                self.render_comm_date_edit(date_row, user_id, username)
+        elif path == '/comm/dates/delete':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            did = query_params.get('id', [None])[0]
+            try:
+                did_int = int(did) if did else None
+            except ValueError:
+                did_int = None
+            if did_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('DELETE FROM comm_dates WHERE id = ?', (did_int,))
+                    conn.commit()
+            self.respond_redirect('/comm/dates')
+        elif path == '/comm/dates/to-task':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            did = query_params.get('id', [None])[0]
+            try:
+                did_int = int(did) if did else None
+            except ValueError:
+                did_int = None
+            if did_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT * FROM comm_dates WHERE id = ?', (did_int,))
+                    drow = cur.fetchone()
+                    if drow:
+                        cur.execute('INSERT INTO comm_tasks (title, description, status, due_date, created_by, priority) VALUES (?, ?, ?, ?, ?, ?)',
+                                    (drow['title'], drow['description'], 'backlog', drow['date'], user_id, 'medium'))
+                        conn.commit()
+            self.respond_redirect('/comm/board')
+
+        # ── Content Kalender ─────────────────────────────────────────────────
+        elif path == '/comm/content':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_comm_content(user_id, username)
+        elif path == '/comm/content/add':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                platform = params.get('platform', ['overig'])[0].strip()
+                publish_date = params.get('publish_date', [''])[0].strip() or None
+                status = params.get('status', ['idee'])[0].strip()
+                tags = params.get('tags', [''])[0].strip() or None
+                assigned_to_raw = params.get('assigned_to', [''])[0].strip()
+                if status not in ('idee', 'gepland', 'klaar', 'gepubliceerd'):
+                    status = 'idee'
+                if platform not in ('instagram', 'linkedin', 'website', 'email', 'overig'):
+                    platform = 'overig'
+                try:
+                    assigned_to = int(assigned_to_raw) if assigned_to_raw else None
+                except ValueError:
+                    assigned_to = None
+                if title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('INSERT INTO comm_content (title, description, platform, publish_date, status, assigned_to, created_by, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                                    (title, description or None, platform, publish_date, status, assigned_to, user_id, tags))
+                        conn.commit()
+            self.respond_redirect('/comm/content')
+        elif path == '/comm/content/edit':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            cid = query_params.get('id', [None])[0]
+            try:
+                cid_int = int(cid) if cid else None
+            except ValueError:
+                cid_int = None
+            if not cid_int:
+                self.respond_redirect('/comm/content')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                platform = params.get('platform', ['overig'])[0].strip()
+                publish_date = params.get('publish_date', [''])[0].strip() or None
+                status = params.get('status', ['idee'])[0].strip()
+                tags = params.get('tags', [''])[0].strip() or None
+                assigned_to_raw = params.get('assigned_to', [''])[0].strip()
+                if status not in ('idee', 'gepland', 'klaar', 'gepubliceerd'):
+                    status = 'idee'
+                if platform not in ('instagram', 'linkedin', 'website', 'email', 'overig'):
+                    platform = 'overig'
+                try:
+                    assigned_to = int(assigned_to_raw) if assigned_to_raw else None
+                except ValueError:
+                    assigned_to = None
+                if title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('UPDATE comm_content SET title=?, description=?, platform=?, publish_date=?, status=?, assigned_to=?, tags=? WHERE id=?',
+                                    (title, description or None, platform, publish_date, status, assigned_to, tags, cid_int))
+                        conn.commit()
+                self.respond_redirect('/comm/content')
+            else:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT * FROM comm_content WHERE id = ?', (cid_int,))
+                    citem = cur.fetchone()
+                    cur.execute('SELECT id, username FROM users WHERE is_comm=1 OR is_admin=1 OR id=1 ORDER BY username')
+                    comm_members = cur.fetchall()
+                if not citem:
+                    self.respond_redirect('/comm/content')
+                    return
+                self.render_comm_content_edit(citem, comm_members, user_id, username)
+        elif path == '/comm/content/move':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            cid = query_params.get('id', [None])[0]
+            new_status = query_params.get('status', ['idee'])[0].strip()
+            if new_status not in ('idee', 'gepland', 'klaar', 'gepubliceerd'):
+                new_status = 'idee'
+            try:
+                cid_int = int(cid) if cid else None
+            except ValueError:
+                cid_int = None
+            if cid_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('UPDATE comm_content SET status=? WHERE id=?', (new_status, cid_int))
+                    conn.commit()
+            self.respond_redirect('/comm/content')
+        elif path == '/comm/content/delete':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            cid = query_params.get('id', [None])[0]
+            try:
+                cid_int = int(cid) if cid else None
+            except ValueError:
+                cid_int = None
+            if cid_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('DELETE FROM comm_content WHERE id=?', (cid_int,))
+                    conn.commit()
+            self.respond_redirect('/comm/content')
+        elif path == '/comm/content/to-task':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            cid = query_params.get('id', [None])[0]
+            try:
+                cid_int = int(cid) if cid else None
+            except ValueError:
+                cid_int = None
+            if cid_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT * FROM comm_content WHERE id=?', (cid_int,))
+                    citem = cur.fetchone()
+                    if citem:
+                        task_title = f'[{citem["platform"].capitalize()}] {citem["title"]}'
+                        cur.execute('INSERT INTO comm_tasks (title, description, status, due_date, assigned_to, created_by, priority, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                                    (task_title, citem['description'], 'backlog', citem['publish_date'], citem['assigned_to'], user_id, 'medium', citem['tags']))
+                        conn.commit()
+            self.respond_redirect('/comm/board')
+
+        # ── Profiel bewerken ─────────────────────────────────────────────────
+        elif path == '/comm/profile/edit':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            target_id_raw = query_params.get('id', [str(user_id)])[0]
+            try:
+                target_id = int(target_id_raw)
+            except ValueError:
+                target_id = user_id
+            if target_id != user_id and not is_admin(user_id):
+                self.respond_redirect(f'/comm/profile?id={user_id}')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                role_title = params.get('role_title', [''])[0].strip() or None
+                bio = params.get('bio', [''])[0].strip() or None
+                skills = params.get('skills', [''])[0].strip() or None
+                avatar_color = params.get('avatar_color', ['#c2185b'])[0].strip()
+                if not avatar_color.startswith('#'):
+                    avatar_color = '#c2185b'
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('''INSERT INTO comm_profiles (user_id, role_title, bio, skills, avatar_color, updated_at)
+                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT(user_id) DO UPDATE SET role_title=excluded.role_title, bio=excluded.bio,
+                        skills=excluded.skills, avatar_color=excluded.avatar_color, updated_at=CURRENT_TIMESTAMP''',
+                        (target_id, role_title, bio, skills, avatar_color))
+                    conn.commit()
+                self.respond_redirect(f'/comm/profile?id={target_id}')
+            else:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT id, username, email FROM users WHERE id=?', (target_id,))
+                    target_user = cur.fetchone()
+                    cur.execute('SELECT * FROM comm_profiles WHERE user_id=?', (target_id,))
+                    profile = cur.fetchone()
+                if not target_user:
+                    self.respond_redirect('/comm/board')
+                    return
+                self.render_comm_profile_edit(target_user, profile, user_id, username)
+
         elif path == '/reports':
             # Display reports/dashboard for admin.  Only admin can view.
             if not logged_in or not is_admin(user_id):
@@ -3779,6 +4110,8 @@ function bulkAction(action){
             ('/comm/week', '&#128197; Week', 'week'),
             (f'/comm/profile?id={user_id}', '&#128100; Mijn profiel', 'profile'),
             ('/comm/search', '&#128269; Zoeken', 'search'),
+            ('/comm/dates', '&#128197; Datums', 'dates'),
+            ('/comm/content', '&#128240; Content', 'content'),
             ('/comm/archived', '&#128452; Archief', 'archived'),
         ]
         parts = []
@@ -4204,19 +4537,37 @@ function bulkAction(action){
                            FROM comm_goals g WHERE g.created_by = ?
                            ORDER BY g.status ASC, COALESCE(g.target_date,'9999-12-31') ASC''', (profile_id,))
             my_goals = cur.fetchall()
-            # Stats
             overdue_cnt = sum(1 for t in my_open if t['due_date'] and t['due_date'] < today_iso)
+            cur.execute('SELECT * FROM comm_profiles WHERE user_id=?', (profile_id,))
+            ext_profile = cur.fetchone()
+
+        avatar_color = (ext_profile['avatar_color'] if ext_profile and ext_profile['avatar_color'] else '#c2185b')
+        role_title   = (ext_profile['role_title'] if ext_profile and ext_profile['role_title'] else '')
+        bio          = (ext_profile['bio'] if ext_profile and ext_profile['bio'] else '')
+        skills_raw   = (ext_profile['skills'] if ext_profile and ext_profile['skills'] else '')
+        can_edit     = (profile_id == viewer_id or is_admin(viewer_id))
 
         body = html_header(f'Profiel: {html.escape(profile_user["username"])}', True, viewer_username, viewer_id)
         body += f'<h2 class="mt-4">&#128100; {html.escape(profile_user["username"])}</h2>'
         body += self._comm_nav('profile', viewer_id)
 
-        # Profile card
-        body += f'''<div class="card" style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
-            <div style="width:56px;height:56px;border-radius:50%;background:#c2185b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.6rem;font-weight:bold;">{html.escape(profile_user["username"][0].upper())}</div>
-            <div><div style="font-size:1.1rem;font-weight:bold;">{html.escape(profile_user["username"])}</div>
-            <div style="color:#666;font-size:0.85rem;">{html.escape(profile_user["email"])}</div>
-            <div style="color:#aaa;font-size:0.78rem;">Lid sinds {profile_user["created_at"][:10]}</div></div>
+        # Profile card with extended info
+        edit_link = f'<a href="/comm/profile/edit?id={profile_id}" class="btn btn-sm btn-secondary" style="margin-top:0.5rem;">&#9998; Profiel bewerken</a>' if can_edit else ''
+        skills_html = ''
+        if skills_raw:
+            skills_html = '<div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">' + ''.join(
+                f'<span style="background:#fce4ec;color:#c2185b;border-radius:12px;padding:0.15rem 0.6rem;font-size:0.78rem;">{html.escape(s.strip())}</span>'
+                for s in skills_raw.split(',') if s.strip()) + '</div>'
+        bio_html = f'<div style="font-size:0.85rem;color:#555;margin-top:0.35rem;font-style:italic;">{html.escape(bio)}</div>' if bio else ''
+        role_html = f'<div style="font-size:0.88rem;color:#c2185b;font-weight:bold;">{html.escape(role_title)}</div>' if role_title else ''
+        body += f'''<div class="card" style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:1rem;">
+            <div style="width:60px;height:60px;border-radius:50%;background:{avatar_color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.7rem;font-weight:bold;flex-shrink:0;">{html.escape(profile_user["username"][0].upper())}</div>
+            <div style="flex:1;">
+                <div style="font-size:1.1rem;font-weight:bold;">{html.escape(profile_user["username"])}</div>
+                {role_html}
+                <div style="color:#888;font-size:0.82rem;">{html.escape(profile_user["email"])} &middot; Lid sinds {profile_user["created_at"][:10]}</div>
+                {bio_html}{skills_html}{edit_link}
+            </div>
         </div>'''
 
         # Stats row
@@ -4416,6 +4767,304 @@ function bulkAction(action){
 
     def render_comm_goal_form(self, user_id: int, username: str) -> None:
         self.respond_redirect('/comm/goals')
+
+    def render_comm_dates(self, user_id: int, username: str) -> None:
+        """Render the important dates page grouped by month."""
+        today_iso = datetime.date.today().isoformat()
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''SELECT d.id, d.title, d.description, d.date, d.type,
+                           u.username AS created_by_name
+                           FROM comm_dates d LEFT JOIN users u ON d.created_by = u.id
+                           ORDER BY d.date ASC''')
+            all_dates = cur.fetchall()
+
+        body = html_header('Belangrijke Datums', True, username, user_id)
+        body += '<h2 class="mt-4">&#128197; Belangrijke Datums</h2>'
+        body += self._comm_nav('dates', user_id)
+
+        # Stats
+        past    = sum(1 for d in all_dates if d['date'] < today_iso)
+        upcoming = sum(1 for d in all_dates if d['date'] >= today_iso)
+        this_week_end = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
+        this_week = sum(1 for d in all_dates if today_iso <= d['date'] <= this_week_end)
+        body += f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+        body += f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:#f57f17;">{this_week}</div><div style="font-size:0.78rem;color:#555;">Deze week</div></div>'
+        body += f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:#c2185b;">{upcoming}</div><div style="font-size:0.78rem;color:#555;">Aankomend</div></div>'
+        body += f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:#aaa;">{past}</div><div style="font-size:0.78rem;color:#555;">Geweest</div></div>'
+        body += '</div>'
+
+        # Add form
+        body += '''<div class="card" style="margin-bottom:1rem;"><div class="section-title">&#43; Datum toevoegen</div>
+            <form method="POST" action="/comm/dates/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Titel *</label><br>
+                    <input type="text" name="title" required placeholder="Bijv. Campagne lancering" class="form-control"></div>
+                <div style="min-width:130px;"><label style="font-size:0.8rem;font-weight:bold;">Datum *</label><br>
+                    <input type="date" name="date" required class="form-control"></div>
+                <div style="min-width:120px;"><label style="font-size:0.8rem;font-weight:bold;">Type</label><br>
+                    <select name="type" class="form-control">
+                        <option value="event">&#127881; Event</option>
+                        <option value="deadline">&#9888; Deadline</option>
+                        <option value="mijlpaal">&#127937; Mijlpaal</option>
+                    </select></div>
+                <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Omschrijving</label><br>
+                    <input type="text" name="description" placeholder="Optioneel" class="form-control"></div>
+                <div><button type="submit" class="btn btn-primary">Toevoegen</button></div>
+            </form></div>'''
+
+        # Type icons and colors
+        type_cfg = {
+            'event':    ('&#127881;', '#1565c0', '#e3f2fd'),
+            'deadline': ('&#9888;',   '#dc3545', '#ffebee'),
+            'mijlpaal': ('&#127937;', '#7b1fa2', '#ede7f6'),
+        }
+
+        # Group by month
+        from collections import OrderedDict
+        months: dict = OrderedDict()
+        for d in all_dates:
+            m = d['date'][:7]  # YYYY-MM
+            months.setdefault(m, []).append(d)
+
+        if not all_dates:
+            body += '<div class="card"><p style="color:#888;">Nog geen datums. Voeg de eerste toe!</p></div>'
+
+        for month_key, dates in months.items():
+            try:
+                month_dt = datetime.datetime.strptime(month_key, '%Y-%m')
+                month_label = month_dt.strftime('%B %Y').capitalize()
+            except Exception:
+                month_label = month_key
+            is_past_month = month_key < today_iso[:7]
+            body += f'<div class="card" style="margin-bottom:0.75rem;opacity:{"0.65" if is_past_month else "1"};"><div style="font-weight:bold;font-size:1rem;margin-bottom:0.5rem;color:{"#aaa" if is_past_month else "#333"};">{"🗓" if not is_past_month else "⏮"} {month_label}</div>'
+            for d in dates:
+                icon, color, bg = type_cfg.get(d['type'], ('&#128197;', '#555', '#f5f5f5'))
+                is_past  = d['date'] < today_iso
+                is_today = d['date'] == today_iso
+                days_delta = (datetime.date.fromisoformat(d['date']) - datetime.date.today()).days
+                if is_today:
+                    delta_str = '<span style="color:#f57f17;font-weight:bold;">Vandaag!</span>'
+                elif is_past:
+                    delta_str = f'<span style="color:#aaa;">{abs(days_delta)} dagen geleden</span>'
+                elif days_delta <= 7:
+                    delta_str = f'<span style="color:#f57f17;font-weight:bold;">Over {days_delta} dag{"en" if days_delta!=1 else ""}</span>'
+                else:
+                    delta_str = f'<span style="color:#555;">Over {days_delta} dagen</span>'
+
+                desc = f'<div style="font-size:0.82rem;color:#666;">{html.escape(d["description"])}</div>' if d['description'] else ''
+                to_task_btn = f'<a href="/comm/dates/to-task?id={d["id"]}" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:0.7rem;margin-left:0.3rem;" onclick="return confirm(\'Taak aanmaken van deze datum?\');">→ Taak</a>'
+                edit_btn    = f'<a href="/comm/dates/edit?id={d["id"]}" class="btn btn-sm btn-secondary" style="font-size:0.7rem;margin-left:0.3rem;">&#9998;</a>'
+                del_btn     = f'<a href="/comm/dates/delete?id={d["id"]}" class="btn btn-sm btn-danger" style="font-size:0.7rem;margin-left:0.3rem;" onclick="return confirm(\'Verwijderen?\');">&#10005;</a>'
+                body += f'''<div style="display:flex;align-items:center;gap:0.75rem;padding:0.45rem 0;border-bottom:1px solid #eee;flex-wrap:wrap;">
+                    <div style="min-width:90px;font-size:0.82rem;font-weight:bold;color:{color};">{d["date"]}</div>
+                    <span style="background:{bg};color:{color};border-radius:4px;padding:0.1rem 0.4rem;font-size:0.75rem;">{icon} {d["type"].capitalize()}</span>
+                    <div style="flex:1;"><strong style="font-size:0.9rem;">{html.escape(d["title"])}</strong> {delta_str}{desc}</div>
+                    <div style="white-space:nowrap;">{to_task_btn}{edit_btn}{del_btn}</div>
+                </div>'''
+            body += '</div>'
+
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_date_edit(self, date_row, user_id: int, username: str) -> None:
+        """Render edit form for an important date."""
+        type_opts = ''.join(f'<option value="{v}"{"selected" if date_row["type"]==v else ""}>{l}</option>'
+                            for v, l in [('event','&#127881; Event'),('deadline','&#9888; Deadline'),('mijlpaal','&#127937; Mijlpaal')])
+        body = html_header('Datum bewerken', True, username, user_id)
+        body += '<h2 class="mt-4">&#9998; Datum bewerken</h2>'
+        body += f'''<div class="card" style="max-width:520px;">
+            <form method="POST" action="/comm/dates/edit?id={date_row["id"]}">
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Titel *</label><br>
+                    <input type="text" name="title" value="{html.escape(date_row["title"])}" required class="form-control"></div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+                    <div style="flex:1;min-width:130px;"><label style="font-weight:bold;">Datum *</label><br>
+                        <input type="date" name="date" value="{date_row["date"]}" required class="form-control"></div>
+                    <div style="flex:1;min-width:120px;"><label style="font-weight:bold;">Type</label><br>
+                        <select name="type" class="form-control">{type_opts}</select></div>
+                </div>
+                <div style="margin-bottom:0.8rem;"><label style="font-weight:bold;">Omschrijving</label><br>
+                    <input type="text" name="description" value="{html.escape(date_row["description"] or "")}" class="form-control"></div>
+                <button type="submit" class="btn btn-primary">Opslaan</button>
+                <a href="/comm/dates" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
+            </form></div>'''
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_content(self, user_id: int, username: str) -> None:
+        """Render content calendar with status columns."""
+        today_iso = datetime.date.today().isoformat()
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''SELECT cc.id, cc.title, cc.description, cc.platform, cc.publish_date,
+                           cc.status, cc.tags, u.username AS assigned_to_name, cc.assigned_to
+                           FROM comm_content cc LEFT JOIN users u ON cc.assigned_to = u.id
+                           ORDER BY COALESCE(cc.publish_date,'9999-12-31') ASC, cc.created_at DESC''')
+            all_items = cur.fetchall()
+            cur.execute('SELECT id, username FROM users WHERE is_comm=1 OR is_admin=1 OR id=1 ORDER BY username')
+            comm_members = cur.fetchall()
+
+        platform_cfg = {
+            'instagram': ('&#128247;', '#e91e63', '#fce4ec'),
+            'linkedin':  ('&#128188;', '#0077b5', '#e3f2fd'),
+            'website':   ('&#127760;', '#388e3c', '#e8f5e9'),
+            'email':     ('&#128140;', '#f57f17', '#fff8e1'),
+            'overig':    ('&#128204;', '#7b1fa2', '#ede7f6'),
+        }
+
+        idee        = [i for i in all_items if i['status'] == 'idee']
+        gepland     = [i for i in all_items if i['status'] == 'gepland']
+        klaar       = [i for i in all_items if i['status'] == 'klaar']
+        gepubliceerd = [i for i in all_items if i['status'] == 'gepubliceerd']
+
+        body = html_header('Content Kalender', True, username, user_id)
+        body += '<h2 class="mt-4">&#128240; Content Kalender</h2>'
+        body += self._comm_nav('content', user_id)
+
+        # Stats
+        body += f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+        for cnt, label, color in [(len(idee),'Ideeën','#888'),(len(gepland),'Gepland','#1565c0'),(len(klaar),'Klaar','#f57f17'),(len(gepubliceerd),'Gepubliceerd','#388e3c')]:
+            body += f'<div class="card" style="flex:1;min-width:90px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:{color};">{cnt}</div><div style="font-size:0.78rem;color:#555;">{label}</div></div>'
+        body += '</div>'
+
+        # Quick add form
+        member_opts = '<option value="">Niet toegewezen</option>' + ''.join(
+            f'<option value="{m["id"]}"{"selected" if m["id"]==user_id else ""}>{html.escape(m["username"])}</option>' for m in comm_members)
+        body += f'''<div class="card" style="margin-bottom:1rem;"><div class="section-title">&#43; Nieuw content item</div>
+            <form method="POST" action="/comm/content/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
+                <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Titel *</label><br>
+                    <input type="text" name="title" required placeholder="Bijv. Zomercampagne post" class="form-control"></div>
+                <div style="min-width:110px;"><label style="font-size:0.8rem;font-weight:bold;">Platform</label><br>
+                    <select name="platform" class="form-control">
+                        <option value="instagram">&#128247; Instagram</option>
+                        <option value="linkedin">&#128188; LinkedIn</option>
+                        <option value="website">&#127760; Website</option>
+                        <option value="email">&#128140; Email</option>
+                        <option value="overig">&#128204; Overig</option>
+                    </select></div>
+                <div style="min-width:110px;"><label style="font-size:0.8rem;font-weight:bold;">Status</label><br>
+                    <select name="status" class="form-control">
+                        <option value="idee">Idee</option>
+                        <option value="gepland">Gepland</option>
+                        <option value="klaar">Klaar</option>
+                    </select></div>
+                <div style="min-width:130px;"><label style="font-size:0.8rem;font-weight:bold;">Publicatiedatum</label><br>
+                    <input type="date" name="publish_date" class="form-control"></div>
+                <div style="min-width:120px;"><label style="font-size:0.8rem;font-weight:bold;">Toegewezen aan</label><br>
+                    <select name="assigned_to" class="form-control">{member_opts}</select></div>
+                <div style="min-width:100px;"><label style="font-size:0.8rem;font-weight:bold;">Tags</label><br>
+                    <input type="text" name="tags" placeholder="bijv. zomer" class="form-control"></div>
+                <div><button type="submit" class="btn btn-primary">Toevoegen</button></div>
+            </form></div>'''
+
+        def _content_card(item):
+            icon, color, bg = platform_cfg.get(item['platform'], ('&#128204;', '#7b1fa2', '#ede7f6'))
+            is_overdue = item['publish_date'] and item['publish_date'] < today_iso and item['status'] != 'gepubliceerd'
+            date_color = '#dc3545' if is_overdue else '#555'
+            date_html  = f'<div style="font-size:0.75rem;color:{date_color};">&#128197; {item["publish_date"]}{"  &#9888;" if is_overdue else ""}</div>' if item['publish_date'] else ''
+            assigned   = f'<div style="font-size:0.75rem;color:#888;">&#128100; {html.escape(item["assigned_to_name"])}</div>' if item['assigned_to_name'] else ''
+            tags_html  = ''.join(f'<span style="font-size:0.7rem;background:#e3f2fd;color:#1565c0;border-radius:3px;padding:0.05rem 0.3rem;">{html.escape(t.strip())}</span>' for t in (item['tags'] or '').split(',') if t.strip())
+
+            # Status move buttons
+            all_statuses = [('idee','Idee'),('gepland','Gepland'),('klaar','Klaar'),('gepubliceerd','&#10003; Gepubliceerd')]
+            move_btns = ' '.join(
+                f'<a href="/comm/content/move?id={item["id"]}&status={s}" class="btn btn-sm btn-secondary" style="font-size:0.68rem;">{l}</a>'
+                for s, l in all_statuses if s != item['status'])
+
+            edit_btn = f'<a href="/comm/content/edit?id={item["id"]}" style="color:#1565c0;font-size:0.78rem;text-decoration:none;margin-right:0.4rem;">&#9998;</a>'
+            del_btn  = f'<a href="/comm/content/delete?id={item["id"]}" style="color:#dc3545;font-size:0.78rem;text-decoration:none;" onclick="return confirm(\'Verwijderen?\');">&#10005;</a>'
+            task_btn = f'<a href="/comm/content/to-task?id={item["id"]}" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:0.68rem;margin-top:0.3rem;" onclick="return confirm(\'Als taak toevoegen aan board?\');">→ Taak</a>'
+
+            return f'''<div style="background:#fff;border-radius:6px;padding:0.6rem 0.7rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);border-left:3px solid {color};">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                    <div style="font-size:0.88rem;font-weight:bold;flex:1;">{html.escape(item["title"])}</div>
+                    <div>{edit_btn}{del_btn}</div>
+                </div>
+                <div style="margin:0.2rem 0;"><span style="background:{bg};color:{color};border-radius:3px;padding:0.05rem 0.35rem;font-size:0.73rem;">{icon} {item["platform"].capitalize()}</span> {tags_html}</div>
+                {assigned}{date_html}
+                <div style="margin-top:0.4rem;display:flex;gap:0.3rem;flex-wrap:wrap;">{move_btns} {task_btn}</div>
+            </div>'''
+
+        cs = 'flex:1;min-width:220px;background:#f0f0f0;border-radius:8px;padding:0.75rem;'
+        body += '<div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start;">'
+        for col_items, col_label, col_badge_color, col_status in [
+            (idee,         '&#128161; Idee',            '#888',    'idee'),
+            (gepland,      '&#128197; Gepland',          '#1565c0', 'gepland'),
+            (klaar,        '&#9989; Klaar',              '#f57f17', 'klaar'),
+            (gepubliceerd, '&#10003; Gepubliceerd',      '#388e3c', 'gepubliceerd'),
+        ]:
+            body += f'<div style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">{col_label} <span style="background:{col_badge_color};color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(col_items)}</span></div>'
+            body += (''.join(_content_card(i) for i in col_items) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>') + '</div>'
+        body += '</div>'
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_content_edit(self, item, comm_members, user_id: int, username: str) -> None:
+        """Render edit form for a content calendar item."""
+        def _sel(current, options):
+            return ''.join(f'<option value="{v}"{"selected" if current==v else ""}>{l}</option>' for v, l in options)
+        plat_opts = _sel(item['platform'], [('instagram','&#128247; Instagram'),('linkedin','&#128188; LinkedIn'),('website','&#127760; Website'),('email','&#128140; Email'),('overig','&#128204; Overig')])
+        stat_opts = _sel(item['status'], [('idee','Idee'),('gepland','Gepland'),('klaar','Klaar'),('gepubliceerd','Gepubliceerd')])
+        memb_opts = '<option value="">Niet toegewezen</option>' + ''.join(
+            f'<option value="{m["id"]}"{"selected" if item["assigned_to"]==m["id"] else ""}>{html.escape(m["username"])}</option>' for m in comm_members)
+        body = html_header('Content bewerken', True, username, user_id)
+        body += '<h2 class="mt-4">&#9998; Content item bewerken</h2>'
+        body += f'''<div class="card" style="max-width:600px;">
+            <form method="POST" action="/comm/content/edit?id={item["id"]}">
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Titel *</label><br>
+                    <input type="text" name="title" value="{html.escape(item["title"])}" required class="form-control"></div>
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Omschrijving</label><br>
+                    <textarea name="description" class="form-control" rows="3">{html.escape(item["description"] or "")}</textarea></div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+                    <div style="flex:1;min-width:110px;"><label style="font-weight:bold;">Platform</label><br>
+                        <select name="platform" class="form-control">{plat_opts}</select></div>
+                    <div style="flex:1;min-width:110px;"><label style="font-weight:bold;">Status</label><br>
+                        <select name="status" class="form-control">{stat_opts}</select></div>
+                    <div style="flex:1;min-width:130px;"><label style="font-weight:bold;">Publicatiedatum</label><br>
+                        <input type="date" name="publish_date" value="{item["publish_date"] or ""}" class="form-control"></div>
+                    <div style="flex:1;min-width:130px;"><label style="font-weight:bold;">Toegewezen aan</label><br>
+                        <select name="assigned_to" class="form-control">{memb_opts}</select></div>
+                </div>
+                <div style="margin-bottom:0.8rem;"><label style="font-weight:bold;">Tags</label><br>
+                    <input type="text" name="tags" value="{html.escape(item["tags"] or "")}" placeholder="bijv. zomer,campagne" class="form-control"></div>
+                <button type="submit" class="btn btn-primary">Opslaan</button>
+                <a href="/comm/content" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
+            </form></div>'''
+        body += html_footer()
+        self._send_html(body)
+
+    def render_comm_profile_edit(self, target_user, profile, user_id: int, username: str) -> None:
+        """Render profile edit form with skills, bio, role title, avatar color."""
+        p = profile  # may be None
+        role_title   = html.escape(p['role_title']   if p and p['role_title']   else '')
+        bio          = html.escape(p['bio']           if p and p['bio']          else '')
+        skills       = html.escape(p['skills']        if p and p['skills']       else '')
+        avatar_color = (p['avatar_color'] if p and p['avatar_color'] else '#c2185b')
+
+        color_options = ['#c2185b','#7b1fa2','#1565c0','#00695c','#e65100','#37474f','#558b2f','#ad1457']
+        color_btns = ''.join(
+            f'<label style="cursor:pointer;"><input type="radio" name="avatar_color" value="{c}" {"checked" if avatar_color==c else ""} style="display:none;"><span style="display:inline-block;width:30px;height:30px;border-radius:50%;background:{c};border:3px solid {"#333" if avatar_color==c else "transparent"};margin:2px;"></span></label>'
+            for c in color_options)
+
+        body = html_header('Profiel bewerken', True, username, user_id)
+        body += f'<h2 class="mt-4">&#9998; Profiel bewerken — {html.escape(target_user["username"])}</h2>'
+        body += f'''<div class="card" style="max-width:560px;">
+            <form method="POST" action="/comm/profile/edit?id={target_user["id"]}">
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Functietitel</label><br>
+                    <input type="text" name="role_title" value="{role_title}" placeholder="Bijv. Social Media Manager" class="form-control"></div>
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Bio / Over mij</label><br>
+                    <textarea name="bio" class="form-control" rows="3" placeholder="Korte omschrijving...">{bio}</textarea></div>
+                <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Skills & vaardigheden</label><br>
+                    <input type="text" name="skills" value="{skills}" placeholder="Bijv. Copywriting, Canva, SEO, Video" class="form-control">
+                    <div style="font-size:0.75rem;color:#888;margin-top:0.2rem;">Komma-gescheiden. Worden getoond als tags op je profiel.</div></div>
+                <div style="margin-bottom:0.8rem;"><label style="font-weight:bold;">Profielkleur</label><br>
+                    <div style="margin-top:0.3rem;">{color_btns}</div></div>
+                <button type="submit" class="btn btn-primary">Opslaan</button>
+                <a href="/comm/profile?id={target_user["id"]}" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
+            </form></div>'''
+        body += html_footer()
+        self._send_html(body)
 
 
 def run_server() -> None:
