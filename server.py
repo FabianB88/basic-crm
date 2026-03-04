@@ -4225,13 +4225,17 @@ function bulkAction(action){
         body += '<h2 class="mt-4">&#128101; Communicatie Dashboard</h2>'
         body += self._comm_nav('board', user_id)
 
-        # Reminder banner: overdue + due today
-        overdue_tasks = [t for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] and t['due_date'] < today_iso and t['assigned_to'] == user_id]
-        today_tasks   = [t for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] == today_iso and t['assigned_to'] == user_id]
+        # Reminder banner: overdue + due today + due within 48h
+        deadline_48h = (datetime.date.today() + datetime.timedelta(hours=48)).isoformat()
+        overdue_tasks  = [t for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] and t['due_date'] < today_iso and t['assigned_to'] == user_id]
+        today_tasks    = [t for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] == today_iso and t['assigned_to'] == user_id]
+        soon_tasks     = [t for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] and today_iso < t['due_date'] <= deadline_48h and t['assigned_to'] == user_id]
         if overdue_tasks:
             body += f'<div style="background:#ffebee;border-left:4px solid #dc3545;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#9888; <strong>{len(overdue_tasks)} verlopen {"taak" if len(overdue_tasks)==1 else "taken"} van jou:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in overdue_tasks[:5]) + ('...' if len(overdue_tasks) > 5 else '') + '</div>'
         if today_tasks:
             body += f'<div style="background:#fff8e1;border-left:4px solid #f57f17;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#128197; <strong>{len(today_tasks)} {"taak" if len(today_tasks)==1 else "taken"} van jou vervalt vandaag:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in today_tasks) + '</div>'
+        if soon_tasks:
+            body += f'<div style="background:#fff3e0;border-left:4px solid #ef6c00;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#9201; <strong>Deadline binnen 48 uur:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em> <span style="font-size:0.8rem;color:#888;">({t["due_date"]})</span>' for t in soon_tasks) + '</div>'
 
         # Reminder notes banner (tasks with reminder_note assigned to me)
         reminders = [t for t in all_tasks if t['reminder_note'] and t['assigned_to'] == user_id and t['status'] not in ('klaar','archief')]
@@ -4683,7 +4687,16 @@ function bulkAction(action){
             gl  = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"] or "")}</span>' if t['goal_title'] else ''
             return f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;display:flex;gap:0.4rem;align-items:center;"><span style="flex:1;font-size:0.86rem;">{html.escape(t["title"])}</span>{pb}{gl}{dat}</div>'
 
-        # Reminders
+        # 48-uurs deadline banner
+        deadline_48h = (datetime.date.today() + datetime.timedelta(hours=48)).isoformat()
+        soon_tasks = [t for t in my_open if t['due_date'] and today_iso < t['due_date'] <= deadline_48h]
+        today_due  = [t for t in my_open if t['due_date'] == today_iso]
+        if today_due:
+            body += f'<div style="background:#fff8e1;border-left:4px solid #f57f17;border-radius:4px;padding:0.6rem 0.9rem;margin-bottom:0.75rem;">&#128197; <strong>Vervalt vandaag:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in today_due) + '</div>'
+        if soon_tasks:
+            body += f'<div style="background:#fff3e0;border-left:4px solid #ef6c00;border-radius:4px;padding:0.6rem 0.9rem;margin-bottom:0.75rem;">&#9201; <strong>Deadline binnen 48 uur:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em> <span style="font-size:0.8rem;color:#888;">({t["due_date"]})</span>' for t in soon_tasks) + '</div>'
+
+        # Handmatige herinneringsnotities
         reminders_with_note = [t for t in my_open if t['reminder_note']]
         if reminders_with_note:
             body += '<div class="card" style="border-left:4px solid #388e3c;"><div class="section-title">&#128276; Herinneringen</div>'
