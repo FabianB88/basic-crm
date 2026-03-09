@@ -4669,11 +4669,16 @@ function bulkAction(action){
             </div>
         </div>'''
 
+        # 48-uurs deadline berekening (voor stats én banners)
+        deadline_48h = (datetime.date.today() + datetime.timedelta(hours=48)).isoformat()
+        soon_tasks = [t for t in my_open if t['due_date'] and today_iso < t['due_date'] <= deadline_48h]
+        today_due  = [t for t in my_open if t['due_date'] == today_iso]
+
         # Stats row
         def _stat(v, l, c='#c2185b'):
             return f'<div class="card" style="flex:1;min-width:90px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:{c};">{v}</div><div style="font-size:0.78rem;color:#555;">{l}</div></div>'
-        body += '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">'
         soon_cnt = len(soon_tasks) + len(today_due)
+        body += '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">'
         body += _stat(len(my_open), 'Open taken', '#f57f17')
         body += _stat(overdue_cnt, 'Verlopen', '#dc3545' if overdue_cnt else '#388e3c')
         body += _stat(soon_cnt, 'Bijna deadline', '#ef6c00' if soon_cnt else '#388e3c')
@@ -4688,11 +4693,6 @@ function bulkAction(action){
             dat = f'<small style="color:{dc};">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
             gl  = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"] or "")}</span>' if t['goal_title'] else ''
             return f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;display:flex;gap:0.4rem;align-items:center;"><span style="flex:1;font-size:0.86rem;">{html.escape(t["title"])}</span>{pb}{gl}{dat}</div>'
-
-        # 48-uurs deadline banner
-        deadline_48h = (datetime.date.today() + datetime.timedelta(hours=48)).isoformat()
-        soon_tasks = [t for t in my_open if t['due_date'] and today_iso < t['due_date'] <= deadline_48h]
-        today_due  = [t for t in my_open if t['due_date'] == today_iso]
         if today_due:
             body += f'<div style="background:#fff8e1;border-left:4px solid #f57f17;border-radius:4px;padding:0.6rem 0.9rem;margin-bottom:0.75rem;">&#128197; <strong>Vervalt vandaag:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in today_due) + '</div>'
         if soon_tasks:
