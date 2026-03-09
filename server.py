@@ -825,22 +825,38 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     # Determine navigation links based on login state.  We omit the
     # registration link unless there are no users yet; see users_exist() below.
     if logged_in:
-        # Left side: dashboard, customers.  If user is admin, include users link.
-        nav_links = ["<a href='/dashboard'>Dashboard</a>", "<a href='/customers'>Klanten</a>"]
         try:
             uid_int = int(user_id) if user_id is not None else None
         except Exception:
             uid_int = None
-        if uid_int is not None and is_admin(uid_int):
-            nav_links.append("<a href='/users'>Gebruikers</a>")
-            nav_links.append("<a href='/fields'>Velden</a>")
-            nav_links.append("<a href='/reports'>Rapporten</a>")
-        # Import link accessible to all logged-in users
-        nav_links.append("<a href='/import'>Importeren</a>")
-        nav_links.append("<a href='/tasks/search'>Taken zoeken</a>")
-        if uid_int is not None and is_comm_member(uid_int):
-            nav_links.append("<a href='/comm/board'>&#128101; Comm</a>")
-        nav_links_left = ''.join(nav_links)
+        _is_admin    = uid_int is not None and is_admin(uid_int)
+        _is_comm     = uid_int is not None and is_comm_member(uid_int)
+        _comm_only   = _is_comm and not _is_admin
+
+        crm_links = ["<a href='/dashboard'>Dashboard</a>", "<a href='/customers'>Klanten</a>"]
+        if _is_admin:
+            crm_links.append("<a href='/users'>Gebruikers</a>")
+            crm_links.append("<a href='/fields'>Velden</a>")
+            crm_links.append("<a href='/reports'>Rapporten</a>")
+        crm_links.append("<a href='/import'>Importeren</a>")
+        crm_links.append("<a href='/tasks/search'>Taken zoeken</a>")
+
+        if _comm_only:
+            # Comm-only gebruikers: toon alleen Comm; CRM verbergbaar via toggle
+            crm_block = ''.join(crm_links)
+            nav_links_left = (
+                "<a href='/comm/board'>&#128101; Comm</a>"
+                f"<span id='crm-nav-links' style='display:none;'>{''.join(crm_links)}</span>"
+                "<button id='crm-toggle-btn' onclick='toggleCRM()' "
+                "style='background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.45);"
+                "color:#fff;border-radius:4px;padding:0.15rem 0.55rem;cursor:pointer;"
+                "font-size:0.8rem;margin-left:0.4rem;'>&#128279; CRM</button>"
+            )
+        else:
+            nav_links_left = ''.join(crm_links)
+            if _is_comm:
+                nav_links_left += "<a href='/comm/board'>&#128101; Comm</a>"
+
         profile_link = f"<a href='/users/profile?id={user_id}'>Mijn profiel</a>" if user_id else ''
         nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
         nav_search = '''<form method="get" action="/customers" style="display:flex;align-items:center;margin:0 1rem;">
@@ -858,6 +874,24 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{html.escape(title)}</title>
     <style>{styles}</style>
+    <script>
+    function toggleCRM() {{
+        var el = document.getElementById('crm-nav-links');
+        var btn = document.getElementById('crm-toggle-btn');
+        if (!el) return;
+        var showing = el.style.display !== 'none';
+        el.style.display = showing ? 'none' : 'inline';
+        btn.innerHTML = showing ? '&#128279; CRM' : '&#10005; CRM';
+        localStorage.setItem('crmNavOpen', showing ? '0' : '1');
+    }}
+    document.addEventListener('DOMContentLoaded', function() {{
+        if (localStorage.getItem('crmNavOpen') === '1') {{
+            var el = document.getElementById('crm-nav-links');
+            var btn = document.getElementById('crm-toggle-btn');
+            if (el) {{ el.style.display = 'inline'; btn.innerHTML = '&#10005; CRM'; }}
+        }}
+    }});
+    </script>
 </head>
 <body>
 <nav class="navbar">
@@ -970,7 +1004,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         # Route dispatch
         if path == '/':
             if logged_in:
-                self.respond_redirect('/dashboard')
+                if not is_admin(user_id) and is_comm_member(user_id):
+                    self.respond_redirect('/comm/board')
+                else:
+                    self.respond_redirect('/dashboard')
             else:
                 self.respond_redirect('/login')
         elif path == '/register':
@@ -1028,8 +1065,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     # plain HTTP in development environments.  Hosting
                     # providers like Render serve over HTTPS and will
                     # automatically upgrade the cookie to secure.
+                    dest = '/comm/board' if (not is_admin(user['id']) and is_comm_member(user['id'])) else '/dashboard'
                     self.send_response(302)
-                    self.send_header('Location', '/dashboard')
+                    self.send_header('Location', dest)
                     self.send_header(
                         'Set-Cookie',
                         f'session_id={session_id}; Path=/; HttpOnly; SameSite=Lax'
