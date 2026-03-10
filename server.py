@@ -590,6 +590,14 @@ def init_db() -> None:
             cur.execute('SELECT project_type FROM governance_persons LIMIT 1')
         except sqlite3.OperationalError:
             cur.execute("ALTER TABLE governance_persons ADD COLUMN project_type TEXT DEFAULT ''")
+        # Add project_type to governance_card_templates if missing
+        try:
+            cur.execute('SELECT project_type FROM governance_card_templates LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE governance_card_templates ADD COLUMN project_type TEXT DEFAULT NULL")
+            # Backfill from title: titles like "Projectkaart X: Communicatie" → project_type='communicatie'
+            for pt in ['communicatie', 'werkveld', 'evenementen', 'onderwijs']:
+                cur.execute("UPDATE governance_card_templates SET project_type=? WHERE lower(title) LIKE ?", (pt, f'%{pt}%'))
 
         # Seed all governance card templates (one check per phase)
         _phases_items = {
@@ -823,8 +831,14 @@ def init_db() -> None:
                 cards = phase_data['cards']
                 shared = phase_data.get('shared_items')
                 for card_title, card_order, card_items in cards:
-                    cur.execute('INSERT INTO governance_card_templates (title, phase, order_index) VALUES (?, ?, ?)',
-                                (card_title, phase_key, card_order))
+                    # Derive project_type from title (e.g. "Projectkaart 1: Communicatie")
+                    _pt = None
+                    for _t in ['communicatie', 'werkveld', 'evenementen', 'onderwijs']:
+                        if _t in card_title.lower():
+                            _pt = _t
+                            break
+                    cur.execute('INSERT INTO governance_card_templates (title, phase, order_index, project_type) VALUES (?, ?, ?, ?)',
+                                (card_title, phase_key, card_order, _pt))
                     card_id = cur.lastrowid
                     items_to_use = card_items if card_items is not None else shared
                     for i, item_data in enumerate(items_to_use):
@@ -3433,6 +3447,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 phase = params.get('phase', ['startpunt'])[0].strip()
                 description = params.get('description', [''])[0].strip()
                 order_index = params.get('order_index', ['0'])[0].strip()
+                project_type_val = params.get('project_type', [''])[0].strip().lower() or None
                 valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
                 if phase not in valid_phases:
                     phase = 'startpunt'
@@ -3443,8 +3458,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if title:
                     with sqlite3.connect(DB_PATH, timeout=10) as conn:
                         cur = conn.cursor()
-                        cur.execute('INSERT INTO governance_card_templates (phase, title, description, order_index) VALUES (?, ?, ?, ?)',
-                            (phase, title, description or None, order_index))
+                        cur.execute('INSERT INTO governance_card_templates (phase, title, description, order_index, project_type) VALUES (?, ?, ?, ?, ?)',
+                            (phase, title, description or None, order_index, project_type_val))
                         conn.commit()
             self.respond_redirect('/gov/cards')
         elif path == '/gov/cards/edit':
@@ -3467,6 +3482,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 phase = params.get('phase', ['startpunt'])[0].strip()
                 description = params.get('description', [''])[0].strip()
                 order_index = params.get('order_index', ['0'])[0].strip()
+                project_type_val = params.get('project_type', [''])[0].strip().lower() or None
                 valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
                 if phase not in valid_phases:
                     phase = 'startpunt'
@@ -3477,8 +3493,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if title:
                     with sqlite3.connect(DB_PATH, timeout=10) as conn:
                         cur = conn.cursor()
-                        cur.execute('UPDATE governance_card_templates SET phase=?, title=?, description=?, order_index=? WHERE id=?',
-                            (phase, title, description or None, order_index, cid))
+                        cur.execute('UPDATE governance_card_templates SET phase=?, title=?, description=?, order_index=?, project_type=? WHERE id=?',
+                            (phase, title, description or None, order_index, project_type_val, cid))
                         conn.commit()
                 self.respond_redirect('/gov/cards')
             else:
@@ -3496,12 +3512,16 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 body = html_header('Kaart bewerken', True, username, user_id)
                 body += self._gov_nav('cards', user_id)
                 body += f'<h2 class="mt-4">&#9998; Kaart bewerken</h2>'
+                cur_pt = card['project_type'] or ''
+                pt_opts_edit = '<option value="" ' + ('selected' if not cur_pt else '') + '>Alle typen</option>' + ''.join(f'<option value="{t}" {"selected" if cur_pt==t else ""}>{t.capitalize()}</option>' for t in ['communicatie','werkveld','evenementen','onderwijs'])
                 body += f'''<div class="card" style="max-width:560px;">
                     <form method="POST" action="/gov/cards/edit?id={card["id"]}">
                         <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Titel</label><br>
                             <input type="text" name="title" value="{html.escape(card["title"])}" class="form-control" required></div>
                         <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Fase</label><br>
                             <select name="phase" class="form-control">{phase_opts}</select></div>
+                        <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Projecttype</label><br>
+                            <select name="project_type" class="form-control">{pt_opts_edit}</select></div>
                         <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Beschrijving</label><br>
                             <textarea name="description" class="form-control" rows="2">{html.escape(card["description"] or "")}</textarea></div>
                         <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Volgorde</label><br>
@@ -6097,11 +6117,9 @@ function bulkAction(action){
             result = []
             for ph in valid_phases:
                 for card in cards_by_phase.get(ph, []):
-                    if ph == 'startpunt' and pt:
-                        if pt in card['title'].lower():
-                            result.append(card)
-                    else:
-                        result.append(card)
+                    if pt and card['project_type'] and card['project_type'] != pt:
+                        continue
+                    result.append(card)
             return result
 
         # Compute per-person progress using only their relevant items
@@ -6286,8 +6304,8 @@ function bulkAction(action){
             cards_by_phase.setdefault(card['phase'], []).append(card)
 
         def relevant_cards_for_phase(ph, phase_cards):
-            if ph == 'startpunt' and project_type:
-                return [c for c in phase_cards if project_type in c['title'].lower()]
+            if project_type:
+                return [c for c in phase_cards if not c['project_type'] or c['project_type'] == project_type]
             return phase_cards
 
         # Compute totals using only relevant items for this person
@@ -6467,11 +6485,13 @@ function bulkAction(action){
 
         # Add card form
         phase_opts_add = ''.join(f'<option value="{p}">{self._gov_phase_label(p)}</option>' for p in valid_phases)
+        pt_opts_add = '<option value="">Alle typen</option>' + ''.join(f'<option value="{t}">{t.capitalize()}</option>' for t in ['communicatie','werkveld','evenementen','onderwijs'])
         body += f'''<div class="card" style="margin-bottom:0.75rem;">
             <div class="section-title">Kaart toevoegen</div>
             <form method="POST" action="/gov/cards/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
                 <div><label style="font-size:0.85rem;">Titel</label><br><input type="text" name="title" class="form-control" required style="min-width:180px;"></div>
                 <div><label style="font-size:0.85rem;">Fase</label><br><select name="phase" class="form-control">{phase_opts_add}</select></div>
+                <div><label style="font-size:0.85rem;">Projecttype</label><br><select name="project_type" class="form-control">{pt_opts_add}</select></div>
                 <div><label style="font-size:0.85rem;">Beschrijving</label><br><input type="text" name="description" class="form-control" style="min-width:200px;"></div>
                 <div><label style="font-size:0.85rem;">Volgorde</label><br><input type="number" name="order_index" value="0" class="form-control" style="width:70px;"></div>
                 <div><button type="submit" class="btn btn-primary">Toevoegen</button></div>
@@ -6487,9 +6507,12 @@ function bulkAction(action){
             body += f'<h3 style="color:{ph_color};margin-top:1rem;">{ph_label}</h3>'
             for card in cards:
                 items = items_by_card.get(card['id'], [])
+                pt_colors = {'communicatie': '#c2185b', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
+                card_pt = card['project_type'] or ''
+                pt_badge = f'<span style="font-size:0.72rem;background:{pt_colors.get(card_pt,"#888")};color:#fff;border-radius:3px;padding:0.05rem 0.35rem;margin-left:0.4rem;">{card_pt.capitalize()}</span>' if card_pt else '<span style="font-size:0.72rem;background:#888;color:#fff;border-radius:3px;padding:0.05rem 0.35rem;margin-left:0.4rem;">Alle typen</span>'
                 body += f'''<div class="card" style="border-left:4px solid {ph_color};margin-bottom:0.5rem;">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <strong>{html.escape(card["title"])}</strong>
+                        <div><strong>{html.escape(card["title"])}</strong>{pt_badge}</div>
                         <div>
                             <a href="/gov/cards/edit?id={card['id']}" class="btn btn-sm btn-secondary">&#9998; Bewerken</a>
                             <a href="/gov/cards/delete?id={card['id']}" class="btn btn-sm btn-danger" style="margin-left:0.3rem;" onclick="return confirm('Kaart verwijderen?');">&#128465;</a>
