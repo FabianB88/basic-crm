@@ -1203,7 +1203,7 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
                 nav_links_left += "<a href='/gov/board'>&#9881; Gov</a>"
 
         profile_link = f"<a href='/users/profile?id={user_id}'>Mijn profiel</a>" if user_id else ''
-        nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
+        nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/account/password'>&#128273; Wachtwoord</a> <a href='/logout'>Uitloggen</a>"
         nav_search = '''<form method="get" action="/customers" style="display:flex;align-items:center;margin:0 1rem;">
             <input type="search" name="q" placeholder="&#128269; Klant zoeken..." style="padding:0.25rem 0.6rem;border:none;border-radius:4px 0 0 4px;font-size:0.85rem;width:160px;outline:none;">
             <button type="submit" style="padding:0.25rem 0.6rem;background:#a3154e;color:#fff;border:none;border-radius:0 4px 4px 0;cursor:pointer;font-size:0.85rem;">&#10132;</button>
@@ -1429,6 +1429,69 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.render_login(error='Ongeldige inloggegevens.')
             else:
                 self.render_login()
+        elif path == '/account/password':
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                current_pw = params.get('current_password', [''])[0]
+                new_pw = params.get('new_password', [''])[0]
+                confirm_pw = params.get('confirm_password', [''])[0]
+                error = None
+                if not current_pw or not new_pw or not confirm_pw:
+                    error = 'Vul alle velden in.'
+                elif new_pw != confirm_pw:
+                    error = 'Nieuw wachtwoord en bevestiging komen niet overeen.'
+                elif len(new_pw) < 6:
+                    error = 'Nieuw wachtwoord moet minimaal 6 tekens zijn.'
+                else:
+                    # Verify current password
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        conn.row_factory = sqlite3.Row
+                        cur = conn.cursor()
+                        cur.execute('SELECT password FROM users WHERE id=?', (user_id,))
+                        row = cur.fetchone()
+                    if not row:
+                        error = 'Gebruiker niet gevonden.'
+                    else:
+                        stored = row['password']
+                        if '$' in stored:
+                            salt, stored_hash = stored.split('$', 1)
+                        else:
+                            salt, stored_hash = '', stored
+                        check_hash = hashlib.sha256((salt + current_pw).encode('utf-8')).hexdigest()
+                        if check_hash != stored_hash:
+                            error = 'Huidig wachtwoord is onjuist.'
+                if error:
+                    body = html_header('Wachtwoord wijzigen', True, username, user_id)
+                    body += f'<h2 class="mt-4">&#128273; Wachtwoord wijzigen</h2>'
+                    body += f'<div class="alert" style="background:#fdecea;color:#c62828;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.75rem;">{html.escape(error)}</div>'
+                    body += self._render_password_form()
+                    body += html_footer()
+                    self._send_html(body)
+                else:
+                    # Save new password
+                    new_salt = hashlib.sha256(str(user_id).encode()).hexdigest()[:16]
+                    new_hash = hashlib.sha256((new_salt + new_pw).encode('utf-8')).hexdigest()
+                    new_stored = f'{new_salt}${new_hash}'
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('UPDATE users SET password=? WHERE id=?', (new_stored, user_id))
+                        conn.commit()
+                    body = html_header('Wachtwoord gewijzigd', True, username, user_id)
+                    body += f'<h2 class="mt-4">&#128273; Wachtwoord wijzigen</h2>'
+                    body += '<div class="alert" style="background:#e8f5e9;color:#2e7d32;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.75rem;">&#10003; Wachtwoord succesvol gewijzigd.</div>'
+                    body += html_footer()
+                    self._send_html(body)
+            else:
+                body = html_header('Wachtwoord wijzigen', True, username, user_id)
+                body += f'<h2 class="mt-4">&#128273; Wachtwoord wijzigen</h2>'
+                body += self._render_password_form()
+                body += html_footer()
+                self._send_html(body)
         elif path == '/logout':
             # Remove session cookie
             if logged_in:
@@ -6096,6 +6159,25 @@ function bulkAction(action){
 
 
     # ── Governance render helpers ─────────────────────────────────────────
+
+    def _render_password_form(self) -> str:
+        return '''<div class="card" style="max-width:420px;">
+            <form method="POST" action="/account/password">
+                <div style="margin-bottom:0.75rem;">
+                    <label style="font-weight:bold;display:block;margin-bottom:0.25rem;">Huidig wachtwoord</label>
+                    <input type="password" name="current_password" class="form-control" required autocomplete="current-password">
+                </div>
+                <div style="margin-bottom:0.75rem;">
+                    <label style="font-weight:bold;display:block;margin-bottom:0.25rem;">Nieuw wachtwoord</label>
+                    <input type="password" name="new_password" class="form-control" required autocomplete="new-password" minlength="6">
+                </div>
+                <div style="margin-bottom:1rem;">
+                    <label style="font-weight:bold;display:block;margin-bottom:0.25rem;">Bevestig nieuw wachtwoord</label>
+                    <input type="password" name="confirm_password" class="form-control" required autocomplete="new-password" minlength="6">
+                </div>
+                <button type="submit" class="btn btn-primary">Wachtwoord wijzigen</button>
+            </form>
+        </div>'''
 
     def _gov_nav(self, active: str, user_id: int) -> str:
         """Return navigation tabs for the governance dashboard."""
