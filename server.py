@@ -277,6 +277,19 @@ def is_comm_member(user_id: int) -> bool:
         return bool(row and row[0])
 
 
+def is_gov_member(user_id: int) -> bool:
+    """Return True if user is in the governance team or is admin."""
+    if user_id is None:
+        return False
+    if is_admin(user_id):
+        return True
+    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        cur = conn.cursor()
+        cur.execute('SELECT is_governance FROM users WHERE id = ?', (user_id,))
+        row = cur.fetchone()
+        return bool(row and row[0])
+
+
 def init_db() -> None:
     """Initialize the SQLite database if it doesn't already exist."""
     with sqlite3.connect(DB_PATH, timeout=10) as conn:
@@ -512,6 +525,57 @@ def init_db() -> None:
             cur.execute('SELECT board_status FROM comm_content LIMIT 1')
         except sqlite3.OperationalError:
             cur.execute('ALTER TABLE comm_content ADD COLUMN board_status TEXT')
+
+        # Ensure is_governance column exists on users table (governance team flag)
+        try:
+            cur.execute('SELECT is_governance FROM users LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE users ADD COLUMN is_governance INTEGER DEFAULT 0')
+
+        # Governance tables
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS governance_persons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                phase TEXT NOT NULL DEFAULT 'startpunt',
+                tags TEXT,
+                notes TEXT,
+                created_by INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS governance_card_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phase TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                order_index INTEGER DEFAULT 0
+            );
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS governance_card_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                order_index INTEGER DEFAULT 0,
+                FOREIGN KEY (card_id) REFERENCES governance_card_templates(id) ON DELETE CASCADE
+            );
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS governance_progress (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_id INTEGER NOT NULL,
+                item_id INTEGER NOT NULL,
+                completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                completed_by INTEGER,
+                UNIQUE(person_id, item_id),
+                FOREIGN KEY (person_id) REFERENCES governance_persons(id) ON DELETE CASCADE,
+                FOREIGN KEY (item_id) REFERENCES governance_card_items(id) ON DELETE CASCADE
+            );
+        ''')
 
         # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
@@ -831,7 +895,8 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
             uid_int = None
         _is_admin    = uid_int is not None and is_admin(uid_int)
         _is_comm     = uid_int is not None and is_comm_member(uid_int)
-        _comm_only   = _is_comm and not _is_admin
+        _is_gov      = uid_int is not None and is_gov_member(uid_int)
+        _restricted  = (_is_comm or _is_gov) and not _is_admin
 
         crm_links = ["<a href='/dashboard'>Dashboard</a>", "<a href='/customers'>Klanten</a>"]
         if _is_admin:
@@ -841,21 +906,27 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
         crm_links.append("<a href='/import'>Importeren</a>")
         crm_links.append("<a href='/tasks/search'>Taken zoeken</a>")
 
-        if _comm_only:
-            # Comm-only gebruikers: toon alleen Comm; CRM verbergbaar via toggle
-            crm_block = ''.join(crm_links)
+        if _restricted:
+            # Restricted gebruikers: toon comm/gov links; CRM verbergbaar via toggle
+            restricted_links = ''
+            if _is_comm:
+                restricted_links += "<a href='/comm/board'>&#128101; Comm</a>"
+            if _is_gov:
+                restricted_links += "<a href='/gov/board'>&#9881; Gov</a>"
             nav_links_left = (
-                "<a href='/comm/board'>&#128101; Comm</a>"
-                f"<span id='crm-nav-links' style='display:none;'>{''.join(crm_links)}</span>"
-                "<button id='crm-toggle-btn' onclick='toggleCRM()' "
-                "style='background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.45);"
-                "color:#fff;border-radius:4px;padding:0.15rem 0.55rem;cursor:pointer;"
-                "font-size:0.8rem;margin-left:0.4rem;'>&#128279; CRM</button>"
+                restricted_links
+                + f"<span id='crm-nav-links' style='display:none;'>{''.join(crm_links)}</span>"
+                + "<button id='crm-toggle-btn' onclick='toggleCRM()' "
+                + "style='background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.45);"
+                + "color:#fff;border-radius:4px;padding:0.15rem 0.55rem;cursor:pointer;"
+                + "font-size:0.8rem;margin-left:0.4rem;'>&#128279; CRM</button>"
             )
         else:
             nav_links_left = ''.join(crm_links)
             if _is_comm:
                 nav_links_left += "<a href='/comm/board'>&#128101; Comm</a>"
+            if _is_gov:
+                nav_links_left += "<a href='/gov/board'>&#9881; Gov</a>"
 
         profile_link = f"<a href='/users/profile?id={user_id}'>Mijn profiel</a>" if user_id else ''
         nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/logout'>Uitloggen</a>"
@@ -1006,6 +1077,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             if logged_in:
                 if not is_admin(user_id) and is_comm_member(user_id):
                     self.respond_redirect('/comm/board')
+                elif not is_admin(user_id) and is_gov_member(user_id):
+                    self.respond_redirect('/gov/board')
                 else:
                     self.respond_redirect('/dashboard')
             else:
@@ -1065,7 +1138,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     # plain HTTP in development environments.  Hosting
                     # providers like Render serve over HTTPS and will
                     # automatically upgrade the cookie to secure.
-                    dest = '/comm/board' if (not is_admin(user['id']) and is_comm_member(user['id'])) else '/dashboard'
+                    if not is_admin(user['id']) and is_comm_member(user['id']):
+                        dest = '/comm/board'
+                    elif not is_admin(user['id']) and is_gov_member(user['id']):
+                        dest = '/gov/board'
+                    else:
+                        dest = '/dashboard'
                     self.send_response(302)
                     self.send_header('Location', dest)
                     self.send_header(
@@ -1940,7 +2018,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 conn.row_factory = sqlite3.Row
                 cur = conn.cursor()
-                cur.execute('SELECT id, username, email, created_at, is_admin, is_comm FROM users ORDER BY id ASC')
+                cur.execute('SELECT id, username, email, created_at, is_admin, is_comm, is_governance FROM users ORDER BY id ASC')
                 users = cur.fetchall()
             self.render_user_list(users, username, user_id)
         elif path == '/users/add':
@@ -2031,6 +2109,27 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         cur.execute('UPDATE users SET is_comm = ? WHERE id = ?', (new_val, uid_tc_int))
                         conn.commit()
                         log_action(user_id, 'update', 'users', uid_tc_int, f'is_comm={new_val}')
+            self.respond_redirect('/users')
+        elif path == '/users/toggle-governance':
+            # Toggle governance team membership. Admin only.
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            uid_tg = query_params.get('id', [None])[0]
+            try:
+                uid_tg_int = int(uid_tg) if uid_tg else None
+            except ValueError:
+                uid_tg_int = None
+            if uid_tg_int:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('SELECT is_governance FROM users WHERE id = ?', (uid_tg_int,))
+                    row = cur.fetchone()
+                    if row:
+                        new_val = 0 if row[0] else 1
+                        cur.execute('UPDATE users SET is_governance = ? WHERE id = ?', (new_val, uid_tg_int))
+                        conn.commit()
+                        log_action(user_id, 'update', 'users', uid_tg_int, f'is_governance={new_val}')
             self.respond_redirect('/users')
         elif path == '/users/profile':
             # Personal dashboard: show tasks, customers and recent interactions for one user.
@@ -2892,6 +2991,326 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     return
                 self.render_comm_profile_edit(target_user, profile, user_id, username)
 
+        # ── Governance module ────────────────────────────────────────────────
+        elif path == '/gov/board':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_gov_board(user_id, username)
+        elif path == '/gov/overview':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_gov_overview(user_id, username)
+        elif path == '/gov/person':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            person_id_raw = query_params.get('id', [None])[0]
+            try:
+                person_id = int(person_id_raw) if person_id_raw else None
+            except ValueError:
+                person_id = None
+            if not person_id:
+                self.respond_redirect('/gov/board')
+                return
+            self.render_gov_person(person_id, user_id, username)
+        elif path == '/gov/persons/add':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                name = params.get('name', [''])[0].strip()
+                tags = params.get('tags', [''])[0].strip()
+                phase = params.get('phase', ['startpunt'])[0].strip()
+                notes = params.get('notes', [''])[0].strip()
+                valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+                if phase not in valid_phases:
+                    phase = 'startpunt'
+                if name:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('INSERT INTO governance_persons (name, phase, tags, notes, created_by) VALUES (?, ?, ?, ?, ?)',
+                            (name, phase, tags or None, notes or None, user_id))
+                        conn.commit()
+            self.respond_redirect('/gov/board')
+        elif path == '/gov/persons/edit':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            pid_raw = query_params.get('id', [None])[0]
+            try:
+                pid = int(pid_raw) if pid_raw else None
+            except ValueError:
+                pid = None
+            if not pid:
+                self.respond_redirect('/gov/board')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                name = params.get('name', [''])[0].strip()
+                tags = params.get('tags', [''])[0].strip()
+                phase = params.get('phase', ['startpunt'])[0].strip()
+                notes = params.get('notes', [''])[0].strip()
+                valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+                if phase not in valid_phases:
+                    phase = 'startpunt'
+                if name:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('UPDATE governance_persons SET name=?, phase=?, tags=?, notes=? WHERE id=?',
+                            (name, phase, tags or None, notes or None, pid))
+                        conn.commit()
+                self.respond_redirect('/gov/board')
+            else:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT * FROM governance_persons WHERE id=?', (pid,))
+                    person = cur.fetchone()
+                if not person:
+                    self.respond_redirect('/gov/board')
+                    return
+                valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+                phase_labels = {'startpunt':'Startpunt','empathize':'Empathize','define':'Define','ideate':'Ideate','prototype':'Prototype','test':'Test','uittreden':'Uittreden'}
+                phase_opts = ''.join(f'<option value="{p}" {"selected" if person["phase"]==p else ""}>{phase_labels[p]}</option>' for p in valid_phases)
+                body = html_header('Persoon bewerken', True, username, user_id)
+                body += self._gov_nav('board', user_id)
+                body += f'<h2 class="mt-4">&#9998; Persoon bewerken</h2>'
+                body += f'''<div class="card" style="max-width:560px;">
+                    <form method="POST" action="/gov/persons/edit?id={person["id"]}">
+                        <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Naam</label><br>
+                            <input type="text" name="name" value="{html.escape(person["name"])}" class="form-control" required></div>
+                        <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Fase</label><br>
+                            <select name="phase" class="form-control">{phase_opts}</select></div>
+                        <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Tags</label><br>
+                            <input type="text" name="tags" value="{html.escape(person["tags"] or "")}" class="form-control" placeholder="komma-gescheiden"></div>
+                        <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Notities</label><br>
+                            <textarea name="notes" class="form-control" rows="3">{html.escape(person["notes"] or "")}</textarea></div>
+                        <button type="submit" class="btn btn-primary">Opslaan</button>
+                        <a href="/gov/board" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
+                    </form></div>'''
+                body += html_footer()
+                self._send_html(body)
+        elif path == '/gov/persons/delete':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            pid_raw = query_params.get('id', [None])[0]
+            try:
+                pid = int(pid_raw) if pid_raw else None
+            except ValueError:
+                pid = None
+            if pid:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('PRAGMA foreign_keys = ON')
+                    cur.execute('DELETE FROM governance_persons WHERE id=?', (pid,))
+                    conn.commit()
+            self.respond_redirect('/gov/board')
+        elif path == '/gov/persons/move':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            pid_raw = query_params.get('id', [None])[0]
+            new_phase = query_params.get('phase', ['startpunt'])[0]
+            valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+            if new_phase not in valid_phases:
+                new_phase = 'startpunt'
+            try:
+                pid = int(pid_raw) if pid_raw else None
+            except ValueError:
+                pid = None
+            if pid:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('UPDATE governance_persons SET phase=? WHERE id=?', (new_phase, pid))
+                    conn.commit()
+            self.respond_redirect('/gov/board')
+        elif path == '/gov/progress/toggle':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            pid_raw = query_params.get('person_id', [None])[0]
+            iid_raw = query_params.get('item_id', [None])[0]
+            try:
+                pid = int(pid_raw) if pid_raw else None
+                iid = int(iid_raw) if iid_raw else None
+            except ValueError:
+                pid = None
+                iid = None
+            if pid and iid:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('SELECT id FROM governance_progress WHERE person_id=? AND item_id=?', (pid, iid))
+                    existing = cur.fetchone()
+                    if existing:
+                        cur.execute('DELETE FROM governance_progress WHERE person_id=? AND item_id=?', (pid, iid))
+                    else:
+                        cur.execute('INSERT INTO governance_progress (person_id, item_id, completed_by) VALUES (?, ?, ?)', (pid, iid, user_id))
+                    conn.commit()
+            self.respond_redirect(f'/gov/person?id={pid}')
+        elif path == '/gov/cards':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if not is_admin(user_id):
+                self.respond_redirect('/gov/board')
+                return
+            self.render_gov_cards(user_id, username)
+        elif path == '/gov/cards/add':
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                phase = params.get('phase', ['startpunt'])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                order_index = params.get('order_index', ['0'])[0].strip()
+                valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+                if phase not in valid_phases:
+                    phase = 'startpunt'
+                try:
+                    order_index = int(order_index)
+                except ValueError:
+                    order_index = 0
+                if title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('INSERT INTO governance_card_templates (phase, title, description, order_index) VALUES (?, ?, ?, ?)',
+                            (phase, title, description or None, order_index))
+                        conn.commit()
+            self.respond_redirect('/gov/cards')
+        elif path == '/gov/cards/edit':
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            cid_raw = query_params.get('id', [None])[0]
+            try:
+                cid = int(cid_raw) if cid_raw else None
+            except ValueError:
+                cid = None
+            if not cid:
+                self.respond_redirect('/gov/cards')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                title = params.get('title', [''])[0].strip()
+                phase = params.get('phase', ['startpunt'])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                order_index = params.get('order_index', ['0'])[0].strip()
+                valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+                if phase not in valid_phases:
+                    phase = 'startpunt'
+                try:
+                    order_index = int(order_index)
+                except ValueError:
+                    order_index = 0
+                if title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('UPDATE governance_card_templates SET phase=?, title=?, description=?, order_index=? WHERE id=?',
+                            (phase, title, description or None, order_index, cid))
+                        conn.commit()
+                self.respond_redirect('/gov/cards')
+            else:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT * FROM governance_card_templates WHERE id=?', (cid,))
+                    card = cur.fetchone()
+                if not card:
+                    self.respond_redirect('/gov/cards')
+                    return
+                valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+                phase_labels = {'startpunt':'Startpunt','empathize':'Empathize','define':'Define','ideate':'Ideate','prototype':'Prototype','test':'Test','uittreden':'Uittreden'}
+                phase_opts = ''.join(f'<option value="{p}" {"selected" if card["phase"]==p else ""}>{phase_labels[p]}</option>' for p in valid_phases)
+                body = html_header('Kaart bewerken', True, username, user_id)
+                body += self._gov_nav('cards', user_id)
+                body += f'<h2 class="mt-4">&#9998; Kaart bewerken</h2>'
+                body += f'''<div class="card" style="max-width:560px;">
+                    <form method="POST" action="/gov/cards/edit?id={card["id"]}">
+                        <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Titel</label><br>
+                            <input type="text" name="title" value="{html.escape(card["title"])}" class="form-control" required></div>
+                        <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Fase</label><br>
+                            <select name="phase" class="form-control">{phase_opts}</select></div>
+                        <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Beschrijving</label><br>
+                            <textarea name="description" class="form-control" rows="2">{html.escape(card["description"] or "")}</textarea></div>
+                        <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Volgorde</label><br>
+                            <input type="number" name="order_index" value="{card["order_index"]}" class="form-control"></div>
+                        <button type="submit" class="btn btn-primary">Opslaan</button>
+                        <a href="/gov/cards" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
+                    </form></div>'''
+                body += html_footer()
+                self._send_html(body)
+        elif path == '/gov/cards/delete':
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            cid_raw = query_params.get('id', [None])[0]
+            try:
+                cid = int(cid_raw) if cid_raw else None
+            except ValueError:
+                cid = None
+            if cid:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('PRAGMA foreign_keys = ON')
+                    cur.execute('DELETE FROM governance_card_templates WHERE id=?', (cid,))
+                    conn.commit()
+            self.respond_redirect('/gov/cards')
+        elif path == '/gov/items/add':
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                card_id = params.get('card_id', [''])[0].strip()
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                order_index = params.get('order_index', ['0'])[0].strip()
+                try:
+                    card_id = int(card_id)
+                    order_index = int(order_index)
+                except ValueError:
+                    card_id = None
+                    order_index = 0
+                if card_id and title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('INSERT INTO governance_card_items (card_id, title, description, order_index) VALUES (?, ?, ?, ?)',
+                            (card_id, title, description or None, order_index))
+                        conn.commit()
+            self.respond_redirect('/gov/cards')
+        elif path == '/gov/items/delete':
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            iid_raw = query_params.get('id', [None])[0]
+            try:
+                iid = int(iid_raw) if iid_raw else None
+            except ValueError:
+                iid = None
+            if iid:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('PRAGMA foreign_keys = ON')
+                    cur.execute('DELETE FROM governance_card_items WHERE id=?', (iid,))
+                    conn.commit()
+            self.respond_redirect('/gov/cards')
+
         elif path == '/reports':
             # Display reports/dashboard for admin.  Only admin can view.
             if not logged_in or not is_admin(user_id):
@@ -3127,6 +3546,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             for user in users:
                 is_admin_user = bool(user['id'] == 1 or user['is_admin'])
                 is_comm_user = bool(user['is_comm'])
+                is_gov_user = bool(user.get('is_governance', 0))
                 is_protected = user['id'] == 1  # id=1 can never be demoted
                 delete_btn = '' if is_protected else f'<a href="/users/delete?id={user["id"]}" class="btn btn-sm btn-danger" style="margin-left:0.5rem;" onclick="return confirm(\'Weet je zeker dat je {html.escape(user["username"])} wilt verwijderen?\');">Verwijder</a>'
                 if not is_protected:
@@ -3138,20 +3558,27 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         comm_btn = f'<a href="/users/toggle-comm?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Comm-team verwijderen van {html.escape(user["username"])}?\');">&#128101; Comm uit</a>'
                     else:
                         comm_btn = f'<a href="/users/toggle-comm?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#7b1fa2;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} aan comm-team toevoegen?\');">&#128101; Comm aan</a>'
+                    if is_gov_user:
+                        gov_btn = f'<a href="/users/toggle-governance?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Governance verwijderen van {html.escape(user["username"])}?\');">&#9881; Gov uit</a>'
+                    else:
+                        gov_btn = f'<a href="/users/toggle-governance?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#1565c0;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} aan governance toevoegen?\');">&#9881; Gov aan</a>'
                 else:
                     toggle_btn = ''
                     comm_btn = ''
+                    gov_btn = ''
                 body += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <strong>{html.escape(user['username'])}</strong> ({html.escape(user['email'])})
                         {'<span style="font-size:0.75rem;background:#c2185b;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">admin</span>' if is_admin_user else ''}
                         {'<span style="font-size:0.75rem;background:#7b1fa2;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">&#128101; comm</span>' if is_comm_user else ''}
+                        {'<span style="font-size:0.75rem;background:#1565c0;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">&#9881; gov</span>' if is_gov_user else ''}
                         <div style="font-size:0.8rem; color:#666;">Aangemaakt op {user['created_at'][:10]}</div>
                     </div>
                     <div>
                         <a href="/users/profile?id={user['id']}" class="btn btn-sm btn-secondary">Profiel</a>
                         {toggle_btn}
                         {comm_btn}
+                        {gov_btn}
                         {delete_btn}
                     </div>
                 </div>'''
@@ -5323,6 +5750,409 @@ function bulkAction(action){
                 <button type="submit" class="btn btn-primary">Opslaan</button>
                 <a href="/comm/profile?id={target_user["id"]}" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
             </form></div>'''
+        body += html_footer()
+        self._send_html(body)
+
+
+    # ── Governance render helpers ─────────────────────────────────────────
+
+    def _gov_nav(self, active: str, user_id: int) -> str:
+        """Return navigation tabs for the governance dashboard."""
+        tabs = [
+            ('/gov/board', '&#9776; Board', 'board'),
+            ('/gov/overview', '&#128200; Overzicht', 'overview'),
+            (f'/gov/person?id={user_id}', '&#128100; Mijn kaart', 'profile'),
+        ]
+        if is_admin(user_id):
+            tabs.append(('/gov/cards', '&#9881; Kaartbeheer', 'cards'))
+        parts = []
+        for href, label, key in tabs:
+            if key == active:
+                parts.append(f'<a href="{href}" style="background:#1565c0;color:#fff;padding:0.4rem 0.85rem;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.9rem;">{label}</a>')
+            else:
+                parts.append(f'<a href="{href}" style="background:#fff;color:#1565c0;border:2px solid #1565c0;padding:0.3rem 0.85rem;border-radius:4px;text-decoration:none;font-size:0.9rem;">{label}</a>')
+        return '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:1rem;">' + ''.join(parts) + '</div>'
+
+    def _gov_phase_color(self, phase: str) -> str:
+        colors = {
+            'startpunt': '#888',
+            'empathize': '#1565c0',
+            'define': '#7b1fa2',
+            'ideate': '#f57f17',
+            'prototype': '#ef6c00',
+            'test': '#388e3c',
+            'uittreden': '#c2185b',
+        }
+        return colors.get(phase, '#888')
+
+    def _gov_phase_label(self, phase: str) -> str:
+        labels = {
+            'startpunt': 'Startpunt',
+            'empathize': 'Empathize',
+            'define': 'Define',
+            'ideate': 'Ideate',
+            'prototype': 'Prototype',
+            'test': 'Test',
+            'uittreden': 'Uittreden',
+        }
+        return labels.get(phase, phase.capitalize())
+
+    def _gov_tag_pills(self, tags: str) -> str:
+        if not tags:
+            return ''
+        tag_colors = ['#1565c0','#7b1fa2','#388e3c','#ef6c00','#c2185b','#37474f','#00695c']
+        parts = []
+        for i, t in enumerate(tags.split(',')):
+            t = t.strip()
+            if t:
+                color = tag_colors[i % len(tag_colors)]
+                parts.append(f'<span style="font-size:0.7rem;background:{color};color:#fff;border-radius:10px;padding:0.1rem 0.45rem;margin-right:0.2rem;">{html.escape(t)}</span>')
+        return ''.join(parts)
+
+    def render_gov_board(self, user_id: int, username: str) -> None:
+        """Render the governance kanban board."""
+        valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM governance_persons ORDER BY name ASC')
+            all_persons = cur.fetchall()
+            # Total items count (for progress bars)
+            cur.execute('SELECT COUNT(*) FROM governance_card_items')
+            total_items = cur.fetchone()[0]
+            # Completed items per person
+            cur.execute('''SELECT person_id, COUNT(*) AS cnt FROM governance_progress GROUP BY person_id''')
+            progress_map = {row['person_id']: row['cnt'] for row in cur.fetchall()}
+
+        # Group by phase
+        phase_map = {p: [] for p in valid_phases}
+        for person in all_persons:
+            ph = person['phase'] if person['phase'] in valid_phases else 'startpunt'
+            phase_map[ph].append(person)
+
+        body = html_header('Governance Board', True, username, user_id)
+        body += '<h2 class="mt-4">&#9881; Governance Dashboard</h2>'
+        body += self._gov_nav('board', user_id)
+
+        # Stats row
+        def _stat(val, label, color='#1565c0'):
+            return f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.8rem;color:#555;">{label}</div></div>'
+
+        body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+        body += _stat(len(all_persons), 'Totaal personen', '#1565c0')
+        for ph in valid_phases:
+            cnt = len(phase_map[ph])
+            if cnt:
+                body += _stat(cnt, self._gov_phase_label(ph), self._gov_phase_color(ph))
+        body += '</div>'
+
+        # Quick add form
+        phase_opts_add = ''.join(f'<option value="{p}">{self._gov_phase_label(p)}</option>' for p in valid_phases)
+        body += f'''<div class="card" style="margin-bottom:0.75rem;">
+            <div class="section-title">&#43; Persoon toevoegen</div>
+            <form method="POST" action="/gov/persons/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
+                <div><label style="font-size:0.85rem;">Naam</label><br><input type="text" name="name" class="form-control" required style="min-width:160px;"></div>
+                <div><label style="font-size:0.85rem;">Tags</label><br><input type="text" name="tags" class="form-control" placeholder="komma-gescheiden" style="min-width:140px;"></div>
+                <div><label style="font-size:0.85rem;">Fase</label><br><select name="phase" class="form-control">{phase_opts_add}</select></div>
+                <div><button type="submit" class="btn btn-primary">Toevoegen</button></div>
+            </form></div>'''
+
+        # Kanban columns
+        body += '<div style="display:flex;gap:0.75rem;overflow-x:auto;padding-bottom:1rem;" id="gov-board">'
+        for ph in valid_phases:
+            color = self._gov_phase_color(ph)
+            label = self._gov_phase_label(ph)
+            persons = phase_map[ph]
+            body += f'''<div class="gov-column" data-phase="{ph}" style="min-width:200px;flex:0 0 200px;background:#f8f9fa;border-radius:8px;padding:0.6rem;border-top:3px solid {color};" ondragover="event.preventDefault();" ondrop="govDrop(event, '{ph}')">
+                <div style="font-weight:bold;color:{color};font-size:0.95rem;margin-bottom:0.5rem;">{label} <span style="font-size:0.8rem;color:#888;">({len(persons)})</span></div>'''
+            for person in persons:
+                done = progress_map.get(person['id'], 0)
+                pct = round(done / total_items * 100) if total_items else 0
+                tag_html = self._gov_tag_pills(person['tags'] or '')
+                body += f'''<div class="gov-card" draggable="true" data-person-id="{person['id']}" data-phase="{ph}"
+                    style="background:#fff;border-radius:6px;padding:0.5rem 0.6rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);cursor:grab;">
+                    <a href="/gov/person?id={person['id']}" style="font-weight:bold;color:#1565c0;text-decoration:none;font-size:0.9rem;">{html.escape(person['name'])}</a>
+                    <div style="margin-top:0.2rem;">{tag_html}</div>
+                    <div style="margin-top:0.35rem;">
+                        <div style="height:5px;background:#e0e0e0;border-radius:3px;overflow:hidden;">
+                            <div style="height:100%;width:{pct}%;background:{color};border-radius:3px;"></div>
+                        </div>
+                        <div style="font-size:0.7rem;color:#888;margin-top:0.1rem;">{done}/{total_items} items ({pct}%)</div>
+                    </div>
+                    <div style="margin-top:0.3rem;display:flex;gap:0.3rem;">
+                        <a href="/gov/persons/edit?id={person['id']}" style="font-size:0.75rem;color:#555;text-decoration:none;">&#9998;</a>
+                        <a href="/gov/persons/delete?id={person['id']}" style="font-size:0.75rem;color:#dc3545;text-decoration:none;" onclick="return confirm('Persoon verwijderen?');">&#128465;</a>
+                    </div>
+                </div>'''
+            body += '</div>'
+        body += '</div>'
+
+        # Drag & drop JS
+        body += '''<script>
+        document.querySelectorAll('.gov-card').forEach(function(card) {
+            card.addEventListener('dragstart', function(e) {
+                e.dataTransfer.setData('personId', card.dataset.personId);
+                e.dataTransfer.setData('fromPhase', card.dataset.phase);
+            });
+        });
+        function govDrop(e, newPhase) {
+            e.preventDefault();
+            var personId = e.dataTransfer.getData('personId');
+            if (!personId) return;
+            fetch('/gov/persons/move?id=' + personId + '&phase=' + newPhase)
+                .then(function() { location.reload(); });
+        }
+        </script>'''
+        body += html_footer()
+        self._send_html(body)
+
+    def render_gov_person(self, person_id: int, user_id: int, username: str) -> None:
+        """Render the detail page for a governance person with progress checkboxes."""
+        valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM governance_persons WHERE id=?', (person_id,))
+            person = cur.fetchone()
+            if not person:
+                self.respond_redirect('/gov/board')
+                return
+            # All card templates ordered by phase then order_index
+            cur.execute('SELECT * FROM governance_card_templates ORDER BY order_index ASC, id ASC')
+            all_cards = cur.fetchall()
+            # All items
+            cur.execute('SELECT * FROM governance_card_items ORDER BY order_index ASC, id ASC')
+            all_items = cur.fetchall()
+            # Completed items for this person
+            cur.execute('SELECT item_id FROM governance_progress WHERE person_id=?', (person_id,))
+            completed_ids = {row['item_id'] for row in cur.fetchall()}
+
+        # Group items by card
+        items_by_card = {}
+        for item in all_items:
+            items_by_card.setdefault(item['card_id'], []).append(item)
+
+        # Group cards by phase
+        cards_by_phase = {}
+        for card in all_cards:
+            cards_by_phase.setdefault(card['phase'], []).append(card)
+
+        total_items = len(all_items)
+        total_done = len(completed_ids)
+        overall_pct = round(total_done / total_items * 100) if total_items else 0
+
+        body = html_header(f'Gov: {person["name"]}', True, username, user_id)
+        body += self._gov_nav('profile', user_id)
+
+        phase_color = self._gov_phase_color(person['phase'])
+        phase_label = self._gov_phase_label(person['phase'])
+        tag_html = self._gov_tag_pills(person['tags'] or '')
+
+        body += f'<h2 class="mt-4">&#128100; {html.escape(person["name"])}</h2>'
+        body += f'''<div class="card" style="margin-bottom:0.75rem;">
+            <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+                <span style="background:{phase_color};color:#fff;border-radius:12px;padding:0.2rem 0.7rem;font-size:0.9rem;">{phase_label}</span>
+                <div>{tag_html}</div>
+                <a href="/gov/persons/edit?id={person_id}" class="btn btn-sm" style="background:#1565c0;color:#fff;">&#9998; Bewerken</a>
+            </div>'''
+        if person['notes']:
+            body += f'<div style="margin-top:0.5rem;color:#555;font-size:0.9rem;">{html.escape(person["notes"])}</div>'
+        # Overall progress
+        body += f'''<div style="margin-top:0.75rem;">
+            <div style="font-size:0.85rem;color:#555;margin-bottom:0.25rem;">Totale voortgang: {total_done}/{total_items} items ({overall_pct}%)</div>
+            <div style="height:8px;background:#e0e0e0;border-radius:4px;overflow:hidden;">
+                <div style="height:100%;width:{overall_pct}%;background:#1565c0;border-radius:4px;"></div>
+            </div>
+        </div></div>'''
+
+        # Cards grouped by phase
+        for ph in valid_phases:
+            cards = cards_by_phase.get(ph, [])
+            if not cards:
+                continue
+            ph_color = self._gov_phase_color(ph)
+            ph_label = self._gov_phase_label(ph)
+            body += f'<h3 style="color:{ph_color};margin-top:1rem;margin-bottom:0.5rem;">&#9654; {ph_label}</h3>'
+            for card in cards:
+                items = items_by_card.get(card['id'], [])
+                card_done = sum(1 for i in items if i['id'] in completed_ids)
+                card_total = len(items)
+                card_pct = round(card_done / card_total * 100) if card_total else 0
+                body += f'''<div class="card" style="margin-bottom:0.5rem;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+                        <strong>{html.escape(card["title"])}</strong>
+                        <span style="font-size:0.8rem;color:#888;">{card_done}/{card_total}</span>
+                    </div>'''
+                if card['description']:
+                    body += f'<div style="font-size:0.8rem;color:#666;margin-bottom:0.4rem;">{html.escape(card["description"])}</div>'
+                body += f'''<div style="height:5px;background:#e0e0e0;border-radius:3px;overflow:hidden;margin-bottom:0.5rem;">
+                        <div style="height:100%;width:{card_pct}%;background:{ph_color};border-radius:3px;"></div>
+                    </div>'''
+                for item in items:
+                    checked = 'checked' if item['id'] in completed_ids else ''
+                    body += f'''<div style="display:flex;align-items:flex-start;gap:0.4rem;margin-bottom:0.3rem;">
+                        <a href="/gov/progress/toggle?person_id={person_id}&item_id={item['id']}" style="text-decoration:none;">
+                            <span style="display:inline-block;width:18px;height:18px;border:2px solid {ph_color};border-radius:3px;background:{"" + ph_color if checked else "#fff"};text-align:center;line-height:14px;font-size:13px;color:#fff;">{"&#10003;" if checked else ""}</span>
+                        </a>
+                        <div>
+                            <span style="font-size:0.9rem;{"text-decoration:line-through;color:#aaa;" if checked else ""}">{html.escape(item["title"])}</span>
+                            {f'<div style="font-size:0.75rem;color:#888;">{html.escape(item["description"])}</div>' if item["description"] else ""}
+                        </div>
+                    </div>'''
+                body += '</div>'
+
+        body += html_footer()
+        self._send_html(body)
+
+    def render_gov_overview(self, user_id: int, username: str) -> None:
+        """Render the governance overview page."""
+        valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM governance_persons ORDER BY name ASC')
+            all_persons = cur.fetchall()
+            cur.execute('SELECT COUNT(*) FROM governance_card_items')
+            total_items = cur.fetchone()[0]
+            cur.execute('SELECT person_id, COUNT(*) AS cnt FROM governance_progress GROUP BY person_id')
+            progress_map = {row['person_id']: row['cnt'] for row in cur.fetchall()}
+
+        phase_counts = {p: 0 for p in valid_phases}
+        for person in all_persons:
+            ph = person['phase'] if person['phase'] in valid_phases else 'startpunt'
+            phase_counts[ph] += 1
+
+        total_persons = len(all_persons)
+        avg_pct = 0
+        if all_persons and total_items:
+            total_pct_sum = sum(progress_map.get(p['id'], 0) for p in all_persons)
+            avg_pct = round(total_pct_sum / (total_persons * total_items) * 100) if total_persons else 0
+
+        body = html_header('Governance Overzicht', True, username, user_id)
+        body += '<h2 class="mt-4">&#128200; Governance Overzicht</h2>'
+        body += self._gov_nav('overview', user_id)
+
+        # Phase distribution
+        body += '<div class="card" style="margin-bottom:0.75rem;"><div class="section-title">Faseverdeling</div>'
+        body += '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">'
+        for ph in valid_phases:
+            cnt = phase_counts[ph]
+            color = self._gov_phase_color(ph)
+            label = self._gov_phase_label(ph)
+            pct = round(cnt / total_persons * 100) if total_persons else 0
+            body += f'''<div style="flex:1;min-width:90px;text-align:center;">
+                <div style="font-size:1.2rem;font-weight:bold;color:{color};">{cnt}</div>
+                <div style="font-size:0.75rem;color:#555;">{label}</div>
+                <div style="height:6px;background:#e0e0e0;border-radius:3px;margin-top:0.2rem;overflow:hidden;">
+                    <div style="height:100%;width:{pct}%;background:{color};"></div>
+                </div>
+            </div>'''
+        body += '</div>'
+        body += f'<div style="font-size:0.85rem;color:#555;">Gemiddelde afronding: <strong>{avg_pct}%</strong></div>'
+        body += '</div>'
+
+        # Persons table
+        body += '<div class="card"><div class="section-title">Alle personen</div><table><thead><tr><th>Naam</th><th>Fase</th><th>Voortgang</th><th>% Klaar</th><th>Tags</th></tr></thead><tbody>'
+        for person in all_persons:
+            ph = person['phase'] if person['phase'] in valid_phases else 'startpunt'
+            color = self._gov_phase_color(ph)
+            label = self._gov_phase_label(ph)
+            done = progress_map.get(person['id'], 0)
+            pct = round(done / total_items * 100) if total_items else 0
+            tag_html = self._gov_tag_pills(person['tags'] or '')
+            body += f'''<tr>
+                <td><a href="/gov/person?id={person['id']}" style="color:#1565c0;">{html.escape(person['name'])}</a></td>
+                <td><span style="background:{color};color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.8rem;">{label}</span></td>
+                <td style="min-width:120px;">
+                    <div style="height:8px;background:#e0e0e0;border-radius:4px;overflow:hidden;">
+                        <div style="height:100%;width:{pct}%;background:{color};border-radius:4px;"></div>
+                    </div>
+                </td>
+                <td><strong>{pct}%</strong></td>
+                <td>{tag_html}</td>
+            </tr>'''
+        body += '</tbody></table></div>'
+        body += html_footer()
+        self._send_html(body)
+
+    def render_gov_cards(self, user_id: int, username: str) -> None:
+        """Render the governance card template management page (admin only)."""
+        valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM governance_card_templates ORDER BY order_index ASC, id ASC')
+            all_cards = cur.fetchall()
+            cur.execute('SELECT * FROM governance_card_items ORDER BY order_index ASC, id ASC')
+            all_items = cur.fetchall()
+
+        items_by_card = {}
+        for item in all_items:
+            items_by_card.setdefault(item['card_id'], []).append(item)
+
+        cards_by_phase = {}
+        for card in all_cards:
+            cards_by_phase.setdefault(card['phase'], []).append(card)
+
+        body = html_header('Governance Kaartbeheer', True, username, user_id)
+        body += '<h2 class="mt-4">&#9881; Kaartbeheer</h2>'
+        body += self._gov_nav('cards', user_id)
+
+        # Add card form
+        phase_opts_add = ''.join(f'<option value="{p}">{self._gov_phase_label(p)}</option>' for p in valid_phases)
+        body += f'''<div class="card" style="margin-bottom:0.75rem;">
+            <div class="section-title">Kaart toevoegen</div>
+            <form method="POST" action="/gov/cards/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
+                <div><label style="font-size:0.85rem;">Titel</label><br><input type="text" name="title" class="form-control" required style="min-width:180px;"></div>
+                <div><label style="font-size:0.85rem;">Fase</label><br><select name="phase" class="form-control">{phase_opts_add}</select></div>
+                <div><label style="font-size:0.85rem;">Beschrijving</label><br><input type="text" name="description" class="form-control" style="min-width:200px;"></div>
+                <div><label style="font-size:0.85rem;">Volgorde</label><br><input type="number" name="order_index" value="0" class="form-control" style="width:70px;"></div>
+                <div><button type="submit" class="btn btn-primary">Toevoegen</button></div>
+            </form></div>'''
+
+        # Cards grouped by phase
+        for ph in valid_phases:
+            cards = cards_by_phase.get(ph, [])
+            if not cards:
+                continue
+            ph_color = self._gov_phase_color(ph)
+            ph_label = self._gov_phase_label(ph)
+            body += f'<h3 style="color:{ph_color};margin-top:1rem;">{ph_label}</h3>'
+            for card in cards:
+                items = items_by_card.get(card['id'], [])
+                body += f'''<div class="card" style="border-left:4px solid {ph_color};margin-bottom:0.5rem;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <strong>{html.escape(card["title"])}</strong>
+                        <div>
+                            <a href="/gov/cards/edit?id={card['id']}" class="btn btn-sm btn-secondary">&#9998; Bewerken</a>
+                            <a href="/gov/cards/delete?id={card['id']}" class="btn btn-sm btn-danger" style="margin-left:0.3rem;" onclick="return confirm('Kaart verwijderen?');">&#128465;</a>
+                        </div>
+                    </div>'''
+                if card['description']:
+                    body += f'<div style="font-size:0.85rem;color:#666;margin-top:0.2rem;">{html.escape(card["description"])}</div>'
+                body += f'<div style="font-size:0.75rem;color:#888;margin-top:0.1rem;">Volgorde: {card["order_index"]}</div>'
+
+                # Items list
+                if items:
+                    body += '<ul style="margin:0.5rem 0 0.3rem 1.2rem;padding:0;">'
+                    for item in items:
+                        body += f'''<li style="margin-bottom:0.2rem;font-size:0.9rem;">
+                            {html.escape(item["title"])}
+                            {f'<span style="font-size:0.8rem;color:#888;"> — {html.escape(item["description"])}</span>' if item["description"] else ""}
+                            <a href="/gov/items/delete?id={item['id']}" style="color:#dc3545;margin-left:0.4rem;font-size:0.75rem;" onclick="return confirm('Item verwijderen?');">&#128465;</a>
+                        </li>'''
+                    body += '</ul>'
+
+                # Add item form
+                body += f'''<form method="POST" action="/gov/items/add" style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:flex-end;margin-top:0.5rem;">
+                    <input type="hidden" name="card_id" value="{card['id']}">
+                    <div><input type="text" name="title" class="form-control" placeholder="Item titel" required style="min-width:160px;"></div>
+                    <div><input type="text" name="description" class="form-control" placeholder="Beschrijving (optioneel)" style="min-width:160px;"></div>
+                    <div><input type="number" name="order_index" value="0" class="form-control" style="width:65px;" placeholder="Volgorde"></div>
+                    <div><button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff;">&#43; Item</button></div>
+                </form>'''
+                body += '</div>'
+
         body += html_footer()
         self._send_html(body)
 
