@@ -590,6 +590,11 @@ def init_db() -> None:
             cur.execute('SELECT project_type FROM governance_persons LIMIT 1')
         except sqlite3.OperationalError:
             cur.execute("ALTER TABLE governance_persons ADD COLUMN project_type TEXT DEFAULT ''")
+        # Add note to governance_progress if missing
+        try:
+            cur.execute('SELECT note FROM governance_progress LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE governance_progress ADD COLUMN note TEXT')
         # Add project_type to governance_card_templates if missing
         try:
             cur.execute('SELECT project_type FROM governance_card_templates LIMIT 1')
@@ -3402,6 +3407,64 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     cur.execute('UPDATE governance_persons SET phase=? WHERE id=?', (new_phase, pid))
                     conn.commit()
             self.respond_redirect('/gov/board')
+        elif path == '/gov/progress/complete':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                pid_raw = params.get('person_id', [None])[0]
+                iid_raw = params.get('item_id', [None])[0]
+                note = params.get('note', [''])[0].strip() or None
+                redirect_to = params.get('redirect', ['/gov/board'])[0]
+                try:
+                    pid = int(pid_raw) if pid_raw else None
+                    iid = int(iid_raw) if iid_raw else None
+                except ValueError:
+                    pid = None
+                    iid = None
+                if pid and iid:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('SELECT id FROM governance_progress WHERE person_id=? AND item_id=?', (pid, iid))
+                        if not cur.fetchone():
+                            cur.execute('INSERT INTO governance_progress (person_id, item_id, completed_by, note) VALUES (?, ?, ?, ?)',
+                                (pid, iid, user_id, note))
+                            conn.commit()
+                self.respond_redirect(redirect_to)
+            else:
+                self.respond_redirect('/gov/board')
+        elif path == '/gov/items/quick-edit':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                iid_raw = params.get('item_id', [None])[0]
+                pid_raw = params.get('person_id', [None])[0]
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip() or None
+                norm = params.get('norm', [''])[0].strip() or None
+                middelen = params.get('middelen', [''])[0].strip() or None
+                try:
+                    iid = int(iid_raw) if iid_raw else None
+                    pid = int(pid_raw) if pid_raw else None
+                except ValueError:
+                    iid = None
+                    pid = None
+                if iid and title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('UPDATE governance_card_items SET title=?, description=?, norm=?, middelen=? WHERE id=?',
+                            (title, description, norm, middelen, iid))
+                        conn.commit()
+                self.respond_redirect(f'/gov/person?id={pid}' if pid else '/gov/board')
+            else:
+                self.respond_redirect('/gov/board')
         elif path == '/gov/progress/toggle':
             if not logged_in or not is_gov_member(user_id):
                 self.respond_redirect('/dashboard')
@@ -6287,9 +6350,10 @@ function bulkAction(action){
             # All items
             cur.execute('SELECT * FROM governance_card_items ORDER BY order_index ASC, id ASC')
             all_items = cur.fetchall()
-            # Completed items for this person
-            cur.execute('SELECT item_id FROM governance_progress WHERE person_id=?', (person_id,))
-            completed_ids = {row['item_id'] for row in cur.fetchall()}
+            # Completed items + notes for this person
+            cur.execute('SELECT item_id, note FROM governance_progress WHERE person_id=?', (person_id,))
+            completed_info = {row['item_id']: (row['note'] or '') for row in cur.fetchall()}
+            completed_ids = set(completed_info.keys())
 
         project_type = (person['project_type'] or '').lower()
 
@@ -6366,7 +6430,8 @@ function bulkAction(action){
                         <div style="height:100%;width:{card_pct}%;background:{ph_color};border-radius:3px;"></div>
                     </div>'''
                 for item in items:
-                    checked = 'checked' if item['id'] in completed_ids else ''
+                    checked = item['id'] in completed_ids
+                    item_note = completed_info.get(item['id'], '')
                     norm_html = ''
                     if item['norm'] or item['middelen']:
                         norm_content = ''
@@ -6374,18 +6439,59 @@ function bulkAction(action){
                             norm_content += f'<div style="margin-bottom:0.3rem;"><strong>Norm:</strong> {html.escape(item["norm"])}</div>'
                         if item['middelen']:
                             norm_content += f'<div><strong>Middelen:</strong> {html.escape(item["middelen"])}</div>'
-                        norm_html = f'<details style="display:inline-block;margin-left:0.4rem;"><summary style="cursor:pointer;font-size:0.72rem;color:#1565c0;list-style:none;">&#8505; info</summary><div style="background:#e3f2fd;border-radius:4px;padding:0.4rem 0.6rem;margin-top:0.3rem;font-size:0.78rem;color:#333;max-width:480px;">{norm_content}</div></details>'
-                    body += f'''<div style="display:flex;align-items:flex-start;gap:0.4rem;margin-bottom:0.3rem;">
-                        <a href="/gov/progress/toggle?person_id={person_id}&item_id={item['id']}" style="text-decoration:none;">
-                            <span style="display:inline-block;width:18px;height:18px;border:2px solid {ph_color};border-radius:3px;background:{"" + ph_color if checked else "#fff"};text-align:center;line-height:14px;font-size:13px;color:#fff;">{"&#10003;" if checked else ""}</span>
-                        </a>
-                        <div>
-                            <span style="font-size:0.9rem;{"text-decoration:line-through;color:#aaa;" if checked else ""}">{html.escape(item["title"])}</span>{norm_html}
-                            {f'<div style="font-size:0.75rem;color:#888;">{html.escape(item["description"])}</div>' if item["description"] else ""}
+                        norm_html = f'<details style="display:inline-block;margin-left:0.3rem;"><summary style="cursor:pointer;font-size:0.72rem;color:#1565c0;list-style:none;">&#8505; info</summary><div style="background:#e3f2fd;border-radius:4px;padding:0.4rem 0.6rem;margin-top:0.3rem;font-size:0.78rem;color:#333;max-width:480px;">{norm_content}</div></details>'
+                    if checked:
+                        chk_html = f'<a href="/gov/progress/toggle?person_id={person_id}&item_id={item["id"]}" style="text-decoration:none;flex-shrink:0;"><span style="display:inline-block;width:18px;height:18px;border:2px solid {ph_color};border-radius:3px;background:{ph_color};text-align:center;line-height:14px;font-size:13px;color:#fff;">&#10003;</span></a>'
+                    else:
+                        chk_html = f'<span onclick="govNoteToggle({item["id"]})" style="flex-shrink:0;cursor:pointer;display:inline-block;width:18px;height:18px;border:2px solid {ph_color};border-radius:3px;background:#fff;"></span>'
+                    title_style = 'text-decoration:line-through;color:#aaa;' if checked else ''
+                    note_display = f'<div style="font-size:0.75rem;color:#1565c0;background:#e3f2fd;border-radius:3px;padding:0.15rem 0.4rem;margin-top:0.15rem;display:inline-block;">&#128196; {html.escape(item_note)}</div>' if item_note else ''
+                    edit_form = f'''<div id="gedit-{item["id"]}" style="display:none;background:#f8f9fa;border-radius:4px;padding:0.5rem;margin-top:0.3rem;">
+                        <form method="POST" action="/gov/items/quick-edit">
+                        <input type="hidden" name="item_id" value="{item["id"]}"><input type="hidden" name="person_id" value="{person_id}">
+                        <div style="margin-bottom:0.25rem;"><input type="text" name="title" value="{html.escape(item["title"])}" class="form-control" style="font-size:0.85rem;" required placeholder="Titel"></div>
+                        <div style="margin-bottom:0.25rem;"><input type="text" name="description" value="{html.escape(item["description"] or "")}" class="form-control" style="font-size:0.85rem;" placeholder="Beschrijving"></div>
+                        <div style="margin-bottom:0.25rem;"><textarea name="norm" class="form-control" style="font-size:0.85rem;" rows="2" placeholder="Norm">{html.escape(item["norm"] or "")}</textarea></div>
+                        <div style="margin-bottom:0.25rem;"><textarea name="middelen" class="form-control" style="font-size:0.85rem;" rows="2" placeholder="Middelen">{html.escape(item["middelen"] or "")}</textarea></div>
+                        <button type="submit" class="btn btn-sm btn-primary" style="font-size:0.8rem;">Opslaan</button>
+                        <button type="button" onclick="govEditToggle({item["id"]})" style="font-size:0.8rem;background:none;border:none;cursor:pointer;color:#555;margin-left:0.4rem;">Annuleren</button>
+                        </form></div>'''
+                    note_form = ''
+                    if not checked:
+                        note_form = f'''<div id="gnote-{item["id"]}" style="display:none;background:#fff8e1;border-radius:4px;padding:0.5rem;margin-top:0.25rem;">
+                            <form method="POST" action="/gov/progress/complete">
+                            <input type="hidden" name="person_id" value="{person_id}">
+                            <input type="hidden" name="item_id" value="{item["id"]}">
+                            <input type="hidden" name="redirect" value="/gov/person?id={person_id}">
+                            <textarea name="note" class="form-control" rows="2" placeholder="Notitie bij afronding (optioneel)..." style="font-size:0.85rem;margin-bottom:0.25rem;"></textarea>
+                            <button type="submit" class="btn btn-sm" style="font-size:0.8rem;background:#388e3c;color:#fff;">&#10003; Afronden</button>
+                            <button type="button" onclick="govNoteToggle({item["id"]})" style="font-size:0.8rem;background:none;border:none;cursor:pointer;color:#555;margin-left:0.4rem;">Annuleren</button>
+                            </form></div>'''
+                    body += f'''<div style="margin-bottom:0.45rem;">
+                        <div style="display:flex;align-items:flex-start;gap:0.4rem;">
+                            {chk_html}
+                            <div style="flex:1;">
+                                <span style="font-size:0.9rem;{title_style}">{html.escape(item["title"])}</span>{norm_html}
+                                <button onclick="govEditToggle({item["id"]})" style="background:none;border:none;cursor:pointer;font-size:0.72rem;color:#bbb;padding:0;margin-left:0.3rem;" title="Bewerken">&#9998;</button>
+                                {f'<div style="font-size:0.75rem;color:#888;">{html.escape(item["description"])}</div>' if item["description"] else ""}
+                                {note_display}
+                                {edit_form}
+                                {note_form}
+                            </div>
                         </div>
                     </div>'''
                 body += '</div>'
 
+        body += '''<script>
+        function govEditToggle(id) {
+            var d = document.getElementById('gedit-' + id);
+            d.style.display = d.style.display === 'none' ? 'block' : 'none';
+        }
+        function govNoteToggle(id) {
+            var d = document.getElementById('gnote-' + id);
+            d.style.display = d.style.display === 'none' ? 'block' : 'none';
+        }
+        </script>'''
         body += html_footer()
         self._send_html(body)
 
