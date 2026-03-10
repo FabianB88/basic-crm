@@ -576,53 +576,261 @@ def init_db() -> None:
                 FOREIGN KEY (item_id) REFERENCES governance_card_items(id) ON DELETE CASCADE
             );
         ''')
+        # Add norm and middelen columns to governance_card_items if missing
+        try:
+            cur.execute('SELECT norm FROM governance_card_items LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE governance_card_items ADD COLUMN norm TEXT')
+        try:
+            cur.execute('SELECT middelen FROM governance_card_items LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE governance_card_items ADD COLUMN middelen TEXT')
+        # Add project_type to governance_persons if missing
+        try:
+            cur.execute('SELECT project_type FROM governance_persons LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE governance_persons ADD COLUMN project_type TEXT DEFAULT ''")
 
-        # Seed governance card templates for Startpunt (only if none exist yet)
-        cur.execute('SELECT COUNT(*) FROM governance_card_templates WHERE phase="startpunt"')
-        if cur.fetchone()[0] == 0:
-            startpunt_cards = [
-                ('Projectkaart 1: Communicatie', 'startpunt', 1, [
-                    'Projecttitel',
-                    'Doel van het project',
-                    'Onderwijsinstelling',
-                    'Link naar AI-onboardingsbot',
-                    'Link naar het overdrachtsdocument',
-                    'Belangrijkste deliverables',
-                    'Betrokken stakeholders',
-                ]),
-                ('Projectkaart 1: Werkveld', 'startpunt', 2, [
-                    'Projecttitel',
-                    'Doel van het project',
-                    'Onderwijsinstelling',
-                    'Link naar AI-onboardingsbot',
-                    'Belangrijkste deliverables',
-                    'Betrokken stakeholders',
-                ]),
-                ('Projectkaart 1: Evenementen', 'startpunt', 3, [
-                    'Projecttitel',
-                    'Doel van het project',
-                    'Onderwijsinstelling',
-                    'Link naar AI-onboardingsbot',
-                    'Link naar het overdrachtsdocument',
-                    'Belangrijkste deliverables',
-                    'Betrokken stakeholders',
-                ]),
-                ('Projectkaart 1: Onderwijs', 'startpunt', 4, [
-                    'Projecttitel',
-                    'Doel van het project',
-                    'Onderwijsinstelling',
-                    'Link naar AI-onboardingsbot',
-                    'Belangrijkste deliverables',
-                    'Betrokken stakeholders',
-                ]),
-            ]
-            for card_title, phase, order_idx, items in startpunt_cards:
-                cur.execute('INSERT INTO governance_card_templates (title, phase, order_index) VALUES (?, ?, ?)',
-                            (card_title, phase, order_idx))
-                card_id = cur.lastrowid
-                for i, item_title in enumerate(items):
-                    cur.execute('INSERT INTO governance_card_items (card_id, title, order_index) VALUES (?, ?, ?)',
-                                (card_id, item_title, i))
+        # Seed all governance card templates (one check per phase)
+        _phases_items = {
+            'startpunt': {
+                'order': 1,
+                'cards': [
+                    ('Projectkaart 1: Communicatie', 1, [
+                        ('Projecttitel', None, None),
+                        ('Doel van het project', None, None),
+                        ('Onderwijsinstelling', None, None),
+                        ('Link naar AI-onboardingsbot', None, None),
+                        ('Link naar het overdrachtsdocument', None, None),
+                        ('Belangrijkste deliverables', None, None),
+                        ('Betrokken stakeholders', None, None),
+                    ]),
+                    ('Projectkaart 1: Werkveld', 2, [
+                        ('Projecttitel', None, None),
+                        ('Doel van het project', None, None),
+                        ('Onderwijsinstelling', None, None),
+                        ('Link naar AI-onboardingsbot', None, None),
+                        ('Belangrijkste deliverables', None, None),
+                        ('Betrokken stakeholders', None, None),
+                    ]),
+                    ('Projectkaart 1: Evenementen', 3, [
+                        ('Projecttitel', None, None),
+                        ('Doel van het project', None, None),
+                        ('Onderwijsinstelling', None, None),
+                        ('Link naar AI-onboardingsbot', None, None),
+                        ('Link naar het overdrachtsdocument', None, None),
+                        ('Belangrijkste deliverables', None, None),
+                        ('Betrokken stakeholders', None, None),
+                    ]),
+                    ('Projectkaart 1: Onderwijs', 4, [
+                        ('Projecttitel', None, None),
+                        ('Doel van het project', None, None),
+                        ('Onderwijsinstelling', None, None),
+                        ('Link naar AI-onboardingsbot', None, None),
+                        ('Belangrijkste deliverables', None, None),
+                        ('Betrokken stakeholders', None, None),
+                    ]),
+                ],
+            },
+            'empathize': {
+                'order': 2,
+                'cards': [
+                    ('Projectkaart 2: Communicatie', 1, None),
+                    ('Projectkaart 2: Werkveld', 2, None),
+                    ('Projectkaart 2: Evenementen', 3, None),
+                    ('Projectkaart 2: Onderwijs', 4, None),
+                ],
+                'shared_items': [
+                    ('Doelen en succescriteria van deze fase zijn opgesteld',
+                     'Er is een kort document (max. 1 A4) op Teams waarin de student beschrijft wat hij/zij onderzocht wil hebben, bereiken en ophalen in deze fase. Dit is afgestemd met de DS specialist.',
+                     None),
+                    ('Gebruikersonderzoek uitvoeren (intern en extern)',
+                     'Minimaal 3 interviews met stakeholders zijn afgenomen en samengevat (met citaten of kerninzichten).',
+                     'Interviewvragenlijst (HGO-format), opnames / Teams-call'),
+                    ('Observaties in de praktijk zijn uitgevoerd',
+                     'Minimaal één praktijkobservatie is gedocumenteerd, inclusief datum, setting, observaties en reflectie.',
+                     'Observatieformulier'),
+                    ('Analyse van bestaand materiaal is uitgevoerd (desk research)',
+                     'Ten minste drie bestaande bronnen zijn geanalyseerd en samengevat in eigen woorden, met verwijzing naar relevante HGO-content.',
+                     'HGO-kennisbank, ToekomstTV, Teams-projectarchief, HAN studie centrum'),
+                    ("Empathy Mapping en Persona's zijn opgesteld",
+                     "Minstens één uitgewerkte empathy map en één persona (met naam, quote, behoeften, frustraties, context) zijn gedeeld in het clusterkanaal.",
+                     'Canva | Miro | PowerPoint | Word'),
+                    ('Stakeholders zijn gesproken',
+                     'Er is een overzicht gemaakt van alle relevante stakeholders met status van contact (gesproken, gepland, niet bereikbaar). Minimaal 3 zijn inhoudelijk gesproken.',
+                     'Stakeholderoverzicht | Teams | Planner'),
+                    ('Data over de fase is verzameld en verwerkt in de online werkomgeving op Teams',
+                     "Alle interviews, observaties, analyses en persona's zijn opgeslagen in de juiste mapstructuur op Teams en gedeeld met het cluster.",
+                     None),
+                    ('Persoonlijke Teams planner aan de hand van Design Thinking is ingevuld',
+                     'De student heeft in Microsoft Planner minimaal 5 taken aangemaakt per fase die gekoppeld zijn aan de DS-fases. Taken zijn voorzien van beschrijving en deadlines.',
+                     'Microsoft Planner, Scrum en deconstructie'),
+                    ('Progres meetings zijn ingepland met DS-specialist en mits nodig afdelingshoofd voor iedere fase van het project',
+                     'De student heeft via Outlook 1 check-in gepland met DS-specialist en bij complexe projecten ook met de afdelingshoofd. Notulen/reflectie worden gedeeld in Teams. Bij de uitnodiging van de meeting zit een agenda.',
+                     'Outlook Agenda, Microsoft Teams'),
+                ],
+            },
+            'define': {
+                'order': 3,
+                'cards': [
+                    ('Projectkaart 3: Communicatie', 1, None),
+                    ('Projectkaart 3: Werkveld', 2, None),
+                    ('Projectkaart 3: Evenementen', 3, None),
+                    ('Projectkaart 3: Onderwijs', 4, None),
+                ],
+                'shared_items': [
+                    ('Doelen en succescriteria van deze fase zijn opgesteld',
+                     'Er is een kort document (max. 1 A4) op Teams waarin de student beschrijft wat hij/zij onderzocht wil hebben, bereiken en ophalen in deze fase. Dit is afgestemd met de DS-specialist.',
+                     None),
+                    ('Probleemdefinitie is geformuleerd op basis van data & inzichten',
+                     'De stagiaire heeft een beargumenteerde probleemdefinitie geschreven van max. 10 regels, gebaseerd op data uit de Empathise-fase. Deze is gedeeld in Teams en terug te vinden in het projectdossier.',
+                     None),
+                    ('Er is een huidige schets van het proces/event en een gewenste schets van het nieuwe resultaat',
+                     None,
+                     'Alle data uit je empathize fase'),
+                    ('Stakeholdermap is gemaakt',
+                     'Er is een visuele of tekstuele stakeholdermap gemaakt met minimaal 6 actoren, inclusief rol, invloed en betrokkenheid. Deze is opgeslagen en gedeeld in Teams.',
+                     'Stakeholder Canvas, Miro / Canva / PowerPoint'),
+                    ('Kaders zijn bepaald vanuit HAN-koers & HGO-visie',
+                     'De koppeling met ten minste één HAN-koersdoel (Slim, Schoon, Sociaal of Wereldburgerschap) en de HGO-visie is expliciet beschreven en zichtbaar in de probleemdefinitie of begeleidend verslag.',
+                     'HAN Koersbeeld-document, Kennisdocument HGO'),
+                    ('Probleemdefinitie is uitgewerkt met mogelijke samenwerking',
+                     'De student heeft de probleemstelling gepresenteerd in een clusteroverleg of progressmeeting en heeft opties voor samenwerking benoemd. Feedback is verwerkt in een bijgewerkte versie.',
+                     'Pitchdeck of poster, feedbackformulier, PowerPoint | Canva, Teams of Word'),
+                    ('Data over de fase is verzameld en verwerkt in de online werkomgeving op Teams',
+                     "Alle interviews, observaties, analyses en persona's zijn opgeslagen in de juiste mapstructuur op Teams en gedeeld met het cluster.",
+                     None),
+                    ('Het eerste school product is ingeleverd',
+                     'Als school een plan van aanpak, projectplan, methodiek, draaiboek etc is gemaakt en ingeleverd.',
+                     'Alle data van de empathise en define fases van DS'),
+                ],
+            },
+            'ideate': {
+                'order': 4,
+                'cards': [
+                    ('Projectkaart 4: Communicatie', 1, None),
+                    ('Projectkaart 4: Werkveld', 2, None),
+                    ('Projectkaart 4: Evenementen', 3, None),
+                    ('Projectkaart 4: Onderwijs', 4, None),
+                ],
+                'shared_items': [
+                    ('Doelen en succescriteria van deze fase zijn opgesteld',
+                     'Er is een kort document (max. 1 A4) op Teams waarin de student beschrijft wat hij/zij onderzocht wil hebben, bereiken en ophalen in deze fase. Dit is afgestemd met de DS-specialist.',
+                     None),
+                    ('Creatieve brainstormsessie is georganiseerd',
+                     "Er is minstens één brainstormsessie gefaciliteerd met teamleden of stakeholders, en de output hiervan (bv. notities, post-its, whiteboardfoto's) is vastgelegd.",
+                     "Miro | Mural | Canva | Whiteboardfoto's, Werkvormen als SCAMPER, Crazy 8's, Brainwriting"),
+                    ('Er zijn minimaal 3 oplossingsrichtingen/ontwerpen geschetst (divergent denken)',
+                     'De student heeft drie verschillende concepten uitgewerkt, ieder met een korte beschrijving en/of visuele ondersteuning (tekening, schema, storyboard).',
+                     'PowerPoint | Canva | Sketch | AI-generated visuals | Word | Designcanvas'),
+                    ("Er is een feedbackronde georganiseerd ('How Might We' / Prototype Feedback)",
+                     "De student heeft feedback opgehaald op de gegenereerde ideeën via interviews, peer-review of clusterpresentatie, en deze feedback is verwerkt in een overzicht.",
+                     'Feedbackformulier | Miro-board | Teamoverlegnotities | Reflectieverslag'),
+                    ('Het kernidee is gekozen en beargumenteerd',
+                     'De student heeft een onderbouwde keuze gemaakt voor één oplossingsrichting, met een korte beargumentering (impact, haalbaarheid, aansluiting op koers & visie).',
+                     'Impactmatrix | SWOT | Besliscanvas | Pitchdeck of Word-document met argumentatie'),
+                    ('Data over de fase is verzameld en verwerkt in de online werkomgeving op Teams',
+                     "Alle interviews, observaties, analyses en persona's zijn opgeslagen in de juiste mapstructuur op Teams en gedeeld met het cluster.",
+                     None),
+                ],
+            },
+            'prototype': {
+                'order': 5,
+                'cards': [
+                    ('Projectkaart 5: Communicatie', 1, None),
+                    ('Projectkaart 5: Werkveld', 2, None),
+                    ('Projectkaart 5: Evenementen', 3, None),
+                    ('Projectkaart 5: Onderwijs', 4, None),
+                ],
+                'shared_items': [
+                    ('Doelen en succescriteria van deze fase zijn opgesteld',
+                     'Er is een kort document (max. 1 A4) op Teams waarin de stagiair beschrijft wat hij/zij onderzocht wil hebben, bereiken en ophalen in deze fase. Dit is afgestemd met de DS-specialist.',
+                     None),
+                    ('Kern(functionaliteit) zijn gekozen',
+                     'De stagiair heeft één duidelijke focus geformuleerd: welk onderdeel of gedrag moet getest worden? Dit is vastgelegd in het prototypeplan.',
+                     None),
+                    ('Schetsmatig prototype zijn gemaakt',
+                     'Er is een eerste ruwe uitwerking gemaakt van het prototype (bv. op papier, in PowerPoint of via een visuele tool), inclusief uitleg van het doel.',
+                     "Miro | Canva | Figma | PowerPoint | Foto's van schetsen | Word"),
+                    ('Prototype is gebouwd (indien passend)',
+                     'Indien relevant, is een werkende versie van het prototype gemaakt (bv. werkende AI-tool, interactieve lesvorm, gameconcept, communicatie-uiting).',
+                     "GPT / Gemini | Figma | Canva | Workshopformat | Digitale toolomgeving | Custom GPT's (via Seyma)"),
+                    ('Prototype is geïntegreerd in HGO-context',
+                     'Het prototype sluit aan bij bestaande structuren binnen HGO (bijv. tools, formats, games, events). Er is overleg geweest met een clusterlead of coach over inbedding.',
+                     'Productportfolio HGO | Clusteroverleg | Feedback van coach of lead | Beschrijving in Word/Teams'),
+                    ('Testopzet is voorbereid',
+                     'Er is een korte testopzet uitgewerkt met testdoel, doelgroep, manier van testen en verwachte output. Deze is opgeslagen op Teams.',
+                     'Testplan-sjabloon, Word | Notion | Canva/PowerPoint voor visuals | Checklist observatie'),
+                    ('Test is uitgevoerd en vastgelegd',
+                     'Het prototype is getest met minimaal 1 echte gebruiker of groep. Data (observaties, reacties, scores) is verzameld en opgeslagen.',
+                     "Observatieformulieren, feedbackformulieren, foto's/video, verslag in Word of Notion, Teams-opslag"),
+                    ('Reflectie en doorontwikkeling is gemaakt',
+                     'De stagiair heeft een korte reflectie geschreven over wat werkte, wat niet, en wat moet worden aangepast in de volgende fase.',
+                     'Reflectiesjabloon, Word | Notion | AI (GPT) voor samenvattende analyse van testdata'),
+                    ('Data over de fase is verzameld en verwerkt in de online werkomgeving op Teams',
+                     "Alle interviews, observaties, analyses en persona's zijn opgeslagen in de juiste mapstructuur op Teams en gedeeld met het cluster.",
+                     None),
+                ],
+            },
+            'test': {
+                'order': 6,
+                'cards': [
+                    ('Projectkaart 6: Communicatie', 1, None),
+                    ('Projectkaart 6: Werkveld', 2, None),
+                    ('Projectkaart 6: Evenementen', 3, None),
+                    ('Projectkaart 6: Onderwijs', 4, None),
+                ],
+                'shared_items': [
+                    ('Doelen en succescriteria van deze fase zijn opgesteld',
+                     'Er is een kort document (max. 1 A4) op Teams waarin de student beschrijft wat hij/zij onderzocht wil hebben, bereiken en ophalen in deze fase. Dit is afgestemd met de DS-specialist.',
+                     None),
+                    ('Pilotplan/draaiboek is opgesteld',
+                     'Er is een uitgewerkt plan met doelgroep, opzet, meetdoelen, feedbackmethodes en planning. Dit plan is gedeeld in Teams én besproken met een begeleider of partner.',
+                     'Pilotplan-sjabloon, Word/Notion, Teams-opslag | Event-draaiboek (indien van toepassing)'),
+                    ('Partners en stakeholders zijn betrokken',
+                     'Minstens 2 relevante partners zijn actief betrokken bij de voorbereiding of uitvoering van de pilot. Er is vastgelegd wie wat doet, en communicatie is verlopen via mail, Teams of overleg.',
+                     'Stakeholderoverzicht, Communicatielog, e-mailarchief, afspraken in Outlook'),
+                    ('De pilot/event is georganiseerd en uitgevoerd',
+                     "De pilot of testmoment is daadwerkelijk uitgevoerd. Er is bewijs (foto's, deelnemerslijst, observaties, feedback) opgeslagen in Teams. Reflectie op verloop is toegevoegd.",
+                     "Draaiboek | Planning in Teams/Outlook | Foto's/video | Observatieformulieren | Feedbackformulieren"),
+                    ('Communicatie- en borgingplan is opgesteld en gedeeld',
+                     'De student heeft een voorstel geschreven over hoe het resultaat geborgd kan worden binnen de HGO (in portfolio, aanbod, kennisbank of als vervolgproject), inclusief communicatie naar het team.',
+                     'Borgingsplan-sjabloon, PowerPoint/Canva voor interne presentatie, Word-document | Optioneel bespreking in clusteroverleg'),
+                    ('Data over de fase is verzameld en verwerkt in de online werkomgeving op Teams',
+                     "Alle interviews, observaties, analyses en persona's zijn opgeslagen in de juiste mapstructuur op Teams en gedeeld met het cluster.",
+                     None),
+                ],
+            },
+            'uittreden': {
+                'order': 7,
+                'cards': [
+                    ('Projectkaart 7: Communicatie', 1, None),
+                    ('Projectkaart 7: Werkveld', 2, None),
+                    ('Projectkaart 7: Evenementen', 3, None),
+                    ('Projectkaart 7: Onderwijs', 4, None),
+                ],
+                'shared_items': [
+                    ('Definitieve producten of resultaten zijn opgeleverd', None, None),
+                    ('Resultaat is geborgd volgens opgesteld borgingsplan', None, None),
+                    ('Gereflecteerd op het resultaat en de impact', None, None),
+                    ('Gereflecteerd op het proces en de samenwerking', None, None),
+                ],
+            },
+        }
+        for phase_key, phase_data in _phases_items.items():
+            cur.execute('SELECT COUNT(*) FROM governance_card_templates WHERE phase=?', (phase_key,))
+            if cur.fetchone()[0] == 0:
+                cards = phase_data['cards']
+                shared = phase_data.get('shared_items')
+                for card_title, card_order, card_items in cards:
+                    cur.execute('INSERT INTO governance_card_templates (title, phase, order_index) VALUES (?, ?, ?)',
+                                (card_title, phase_key, card_order))
+                    card_id = cur.lastrowid
+                    items_to_use = card_items if card_items is not None else shared
+                    for i, item_data in enumerate(items_to_use):
+                        item_title, item_norm, item_middelen = item_data
+                        cur.execute('INSERT INTO governance_card_items (card_id, title, norm, middelen, order_index) VALUES (?, ?, ?, ?, ?)',
+                                    (card_id, item_title, item_norm, item_middelen, i))
 
         # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
@@ -3074,14 +3282,15 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 tags = params.get('tags', [''])[0].strip()
                 phase = params.get('phase', ['startpunt'])[0].strip()
                 notes = params.get('notes', [''])[0].strip()
+                project_type = params.get('project_type', [''])[0].strip()
                 valid_phases = ['startpunt','empathize','define','ideate','prototype','test','uittreden']
                 if phase not in valid_phases:
                     phase = 'startpunt'
                 if name:
                     with sqlite3.connect(DB_PATH, timeout=10) as conn:
                         cur = conn.cursor()
-                        cur.execute('INSERT INTO governance_persons (name, phase, tags, notes, created_by) VALUES (?, ?, ?, ?, ?)',
-                            (name, phase, tags or None, notes or None, user_id))
+                        cur.execute('INSERT INTO governance_persons (name, phase, tags, notes, created_by, project_type) VALUES (?, ?, ?, ?, ?, ?)',
+                            (name, phase, tags or None, notes or None, user_id, project_type or None))
                         conn.commit()
             self.respond_redirect('/gov/board')
         elif path == '/gov/persons/edit':
@@ -5900,6 +6109,13 @@ function bulkAction(action){
                 <div><label style="font-size:0.85rem;">Naam</label><br><input type="text" name="name" class="form-control" required style="min-width:160px;"></div>
                 <div><label style="font-size:0.85rem;">Tags</label><br><input type="text" name="tags" class="form-control" placeholder="komma-gescheiden" style="min-width:140px;"></div>
                 <div><label style="font-size:0.85rem;">Fase</label><br><select name="phase" class="form-control">{phase_opts_add}</select></div>
+                <div><label style="font-size:0.85rem;">Projecttype</label><br>
+<select name="project_type" class="form-control">
+<option value="communicatie">Communicatie</option>
+<option value="werkveld">Werkveld</option>
+<option value="evenementen">Evenementen</option>
+<option value="onderwijs">Onderwijs</option>
+</select></div>
                 <div><button type="submit" class="btn btn-primary">Toevoegen</button></div>
             </form></div>'''
 
@@ -5916,10 +6132,13 @@ function bulkAction(action){
                 done = progress_map.get(person['id'], 0)
                 pct = round(done / total_items * 100) if total_items else 0
                 tag_html = self._gov_tag_pills(person['tags'] or '')
+                pt = person['project_type'] or ''
+                pt_colors = {'communicatie': '#c2185b', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
+                pt_html = f'<span style="font-size:0.68rem;background:{pt_colors.get(pt,"#888")};color:#fff;border-radius:3px;padding:0.05rem 0.3rem;margin-right:0.2rem;">{pt.capitalize()}</span>' if pt else ''
                 body += f'''<div class="gov-card" draggable="true" data-person-id="{person['id']}" data-phase="{ph}"
                     style="background:#fff;border-radius:6px;padding:0.5rem 0.6rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);cursor:grab;">
                     <a href="/gov/person?id={person['id']}" style="font-weight:bold;color:#1565c0;text-decoration:none;font-size:0.9rem;">{html.escape(person['name'])}</a>
-                    <div style="margin-top:0.2rem;">{tag_html}</div>
+                    <div style="margin-top:0.2rem;">{pt_html}{tag_html}</div>
                     <div style="margin-top:0.35rem;">
                         <div style="height:5px;background:#e0e0e0;border-radius:3px;overflow:hidden;">
                             <div style="height:100%;width:{pct}%;background:{color};border-radius:3px;"></div>
@@ -5974,6 +6193,8 @@ function bulkAction(action){
             cur.execute('SELECT item_id FROM governance_progress WHERE person_id=?', (person_id,))
             completed_ids = {row['item_id'] for row in cur.fetchall()}
 
+        project_type = (person['project_type'] or '').lower()
+
         # Group items by card
         items_by_card = {}
         for item in all_items:
@@ -6014,13 +6235,15 @@ function bulkAction(action){
 
         # Cards grouped by phase
         for ph in valid_phases:
-            cards = cards_by_phase.get(ph, [])
-            if not cards:
+            phase_cards = cards_by_phase.get(ph, [])
+            # only show cards matching this person's project_type (by title)
+            relevant_cards = [c for c in phase_cards if not project_type or project_type in c['title'].lower()]
+            if not relevant_cards:
                 continue
             ph_color = self._gov_phase_color(ph)
             ph_label = self._gov_phase_label(ph)
             body += f'<h3 style="color:{ph_color};margin-top:1rem;margin-bottom:0.5rem;">&#9654; {ph_label}</h3>'
-            for card in cards:
+            for card in relevant_cards:
                 items = items_by_card.get(card['id'], [])
                 card_done = sum(1 for i in items if i['id'] in completed_ids)
                 card_total = len(items)
@@ -6037,12 +6260,20 @@ function bulkAction(action){
                     </div>'''
                 for item in items:
                     checked = 'checked' if item['id'] in completed_ids else ''
+                    norm_html = ''
+                    if item['norm'] or item['middelen']:
+                        norm_content = ''
+                        if item['norm']:
+                            norm_content += f'<div style="margin-bottom:0.3rem;"><strong>Norm:</strong> {html.escape(item["norm"])}</div>'
+                        if item['middelen']:
+                            norm_content += f'<div><strong>Middelen:</strong> {html.escape(item["middelen"])}</div>'
+                        norm_html = f'<details style="display:inline-block;margin-left:0.4rem;"><summary style="cursor:pointer;font-size:0.72rem;color:#1565c0;list-style:none;">&#8505; info</summary><div style="background:#e3f2fd;border-radius:4px;padding:0.4rem 0.6rem;margin-top:0.3rem;font-size:0.78rem;color:#333;max-width:480px;">{norm_content}</div></details>'
                     body += f'''<div style="display:flex;align-items:flex-start;gap:0.4rem;margin-bottom:0.3rem;">
                         <a href="/gov/progress/toggle?person_id={person_id}&item_id={item['id']}" style="text-decoration:none;">
                             <span style="display:inline-block;width:18px;height:18px;border:2px solid {ph_color};border-radius:3px;background:{"" + ph_color if checked else "#fff"};text-align:center;line-height:14px;font-size:13px;color:#fff;">{"&#10003;" if checked else ""}</span>
                         </a>
                         <div>
-                            <span style="font-size:0.9rem;{"text-decoration:line-through;color:#aaa;" if checked else ""}">{html.escape(item["title"])}</span>
+                            <span style="font-size:0.9rem;{"text-decoration:line-through;color:#aaa;" if checked else ""}">{html.escape(item["title"])}</span>{norm_html}
                             {f'<div style="font-size:0.75rem;color:#888;">{html.escape(item["description"])}</div>' if item["description"] else ""}
                         </div>
                     </div>'''
