@@ -3410,7 +3410,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     else:
                         cur.execute('INSERT INTO governance_progress (person_id, item_id, completed_by) VALUES (?, ?, ?)', (pid, iid, user_id))
                     conn.commit()
-            self.respond_redirect(f'/gov/person?id={pid}')
+            redirect_raw = query_params.get('redirect', [None])[0]
+            redirect_to = redirect_raw if redirect_raw else f'/gov/person?id={pid}'
+            self.respond_redirect(redirect_to)
         elif path == '/gov/cards':
             if not logged_in or not is_gov_member(user_id):
                 self.respond_redirect('/dashboard')
@@ -6072,12 +6074,48 @@ function bulkAction(action){
             cur = conn.cursor()
             cur.execute('SELECT * FROM governance_persons ORDER BY name ASC')
             all_persons = cur.fetchall()
-            # Total items count (for progress bars)
-            cur.execute('SELECT COUNT(*) FROM governance_card_items')
-            total_items = cur.fetchone()[0]
-            # Completed items per person
-            cur.execute('''SELECT person_id, COUNT(*) AS cnt FROM governance_progress GROUP BY person_id''')
-            progress_map = {row['person_id']: row['cnt'] for row in cur.fetchall()}
+            cur.execute('SELECT * FROM governance_card_templates ORDER BY order_index ASC, id ASC')
+            all_cards = cur.fetchall()
+            cur.execute('SELECT * FROM governance_card_items ORDER BY order_index ASC, id ASC')
+            all_items = cur.fetchall()
+            # All progress entries
+            cur.execute('SELECT person_id, item_id FROM governance_progress')
+            completed_by_person = {}
+            for row in cur.fetchall():
+                completed_by_person.setdefault(row['person_id'], set()).add(row['item_id'])
+
+        # Build lookup structures
+        items_by_card = {}
+        for item in all_items:
+            items_by_card.setdefault(item['card_id'], []).append(item)
+        cards_by_phase = {}
+        for card in all_cards:
+            cards_by_phase.setdefault(card['phase'], []).append(card)
+
+        def relevant_cards_for_person(person):
+            pt = (person['project_type'] or '').lower()
+            result = []
+            for ph in valid_phases:
+                for card in cards_by_phase.get(ph, []):
+                    if ph == 'startpunt' and pt:
+                        if pt in card['title'].lower():
+                            result.append(card)
+                    else:
+                        result.append(card)
+            return result
+
+        # Compute per-person progress using only their relevant items
+        progress_map = {}
+        relevant_totals = {}
+        for person in all_persons:
+            rel_cards = relevant_cards_for_person(person)
+            rel_ids = set()
+            for card in rel_cards:
+                for item in items_by_card.get(card['id'], []):
+                    rel_ids.add(item['id'])
+            done_ids = completed_by_person.get(person['id'], set())
+            relevant_totals[person['id']] = len(rel_ids)
+            progress_map[person['id']] = len(done_ids & rel_ids)
 
         # Group by phase
         phase_map = {p: [] for p in valid_phases}
@@ -6130,30 +6168,59 @@ function bulkAction(action){
                 <div style="font-weight:bold;color:{color};font-size:0.95rem;margin-bottom:0.65rem;">{label} <span style="background:{color};color:#fff;border-radius:10px;padding:0.05rem 0.5rem;font-size:0.75rem;margin-left:0.3rem;">{len(persons)}</span></div>'''
             for person in persons:
                 done = progress_map.get(person['id'], 0)
-                pct = round(done / total_items * 100) if total_items else 0
+                rel_total = relevant_totals.get(person['id'], 0)
+                pct = round(done / rel_total * 100) if rel_total else 0
                 tag_html = self._gov_tag_pills(person['tags'] or '')
                 pt = person['project_type'] or ''
                 pt_colors = {'communicatie': '#c2185b', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
                 pt_html = f'<span style="font-size:0.68rem;background:{pt_colors.get(pt,"#888")};color:#fff;border-radius:3px;padding:0.05rem 0.3rem;margin-right:0.2rem;">{pt.capitalize()}</span>' if pt else ''
+                # Build inline checklist for this person
+                rel_cards = relevant_cards_for_person(person)
+                completed_ids_p = completed_by_person.get(person['id'], set())
+                inline_html = ''
+                for ph2 in valid_phases:
+                    phase_rel = [c for c in rel_cards if c['phase'] == ph2]
+                    if not phase_rel:
+                        continue
+                    ph2_color = self._gov_phase_color(ph2)
+                    ph2_label = self._gov_phase_label(ph2)
+                    inline_html += f'<div style="font-size:0.78rem;font-weight:bold;color:{ph2_color};margin:0.4rem 0 0.2rem 0;">{ph2_label}</div>'
+                    for card in phase_rel:
+                        items = items_by_card.get(card['id'], [])
+                        if not items:
+                            continue
+                        inline_html += f'<div style="font-size:0.75rem;color:#555;margin-bottom:0.1rem;font-style:italic;">{html.escape(card["title"])}</div>'
+                        for item in items:
+                            checked = item['id'] in completed_ids_p
+                            chk_color = ph2_color
+                            box = f'<span style="display:inline-block;width:14px;height:14px;border:2px solid {chk_color};border-radius:2px;background:{"" + chk_color if checked else "#fff"};text-align:center;line-height:10px;font-size:10px;color:#fff;flex-shrink:0;">{"&#10003;" if checked else ""}</span>'
+                            strike = 'text-decoration:line-through;color:#aaa;' if checked else ''
+                            inline_html += f'<div style="display:flex;align-items:flex-start;gap:0.3rem;margin-bottom:0.2rem;"><a href="/gov/progress/toggle?person_id={person["id"]}&item_id={item["id"]}&redirect=/gov/board" style="text-decoration:none;flex-shrink:0;">{box}</a><span style="font-size:0.78rem;{strike}">{html.escape(item["title"])}</span></div>'
                 body += f'''<div class="gov-card" draggable="true" data-person-id="{person['id']}" data-phase="{ph}"
                     style="background:#fff;border-radius:6px;padding:0.5rem 0.6rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);cursor:grab;">
-                    <a href="/gov/person?id={person['id']}" style="font-weight:bold;color:#1565c0;text-decoration:none;font-size:0.9rem;">{html.escape(person['name'])}</a>
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                        <a href="/gov/person?id={person['id']}" style="font-weight:bold;color:#1565c0;text-decoration:none;font-size:0.9rem;">{html.escape(person['name'])}</a>
+                        <button onclick="govToggle(event,{person['id']})" style="background:none;border:none;cursor:pointer;font-size:0.75rem;color:#1565c0;padding:0;line-height:1;" title="Afvinken">&#9654;</button>
+                    </div>
                     <div style="margin-top:0.2rem;">{pt_html}{tag_html}</div>
                     <div style="margin-top:0.35rem;">
                         <div style="height:5px;background:#e0e0e0;border-radius:3px;overflow:hidden;">
                             <div style="height:100%;width:{pct}%;background:{color};border-radius:3px;"></div>
                         </div>
-                        <div style="font-size:0.7rem;color:#888;margin-top:0.1rem;">{done}/{total_items} items ({pct}%)</div>
+                        <div style="font-size:0.7rem;color:#888;margin-top:0.1rem;">{done}/{rel_total} items ({pct}%)</div>
                     </div>
                     <div style="margin-top:0.3rem;display:flex;gap:0.3rem;">
                         <a href="/gov/persons/edit?id={person['id']}" style="font-size:0.75rem;color:#555;text-decoration:none;">&#9998;</a>
                         <a href="/gov/persons/delete?id={person['id']}" style="font-size:0.75rem;color:#dc3545;text-decoration:none;" onclick="return confirm('Persoon verwijderen?');">&#128465;</a>
                     </div>
+                    <div id="gov-inline-{person['id']}" style="display:none;border-top:1px solid #e0e0e0;margin-top:0.4rem;padding-top:0.4rem;max-height:300px;overflow-y:auto;">
+                        {inline_html}
+                    </div>
                 </div>'''
             body += '</div>'
         body += '</div></div>'
 
-        # Drag & drop JS
+        # Drag & drop + inline toggle JS
         body += '''<script>
         document.querySelectorAll('.gov-card').forEach(function(card) {
             card.addEventListener('dragstart', function(e) {
@@ -6167,6 +6234,19 @@ function bulkAction(action){
             if (!personId) return;
             fetch('/gov/persons/move?id=' + personId + '&phase=' + newPhase)
                 .then(function() { location.reload(); });
+        }
+        function govToggle(e, personId) {
+            e.stopPropagation();
+            e.preventDefault();
+            var div = document.getElementById('gov-inline-' + personId);
+            var btn = e.currentTarget;
+            if (div.style.display === 'none') {
+                div.style.display = 'block';
+                btn.innerHTML = '&#9660;';
+            } else {
+                div.style.display = 'none';
+                btn.innerHTML = '&#9654;';
+            }
         }
         </script>'''
         body += html_footer()
@@ -6200,13 +6280,24 @@ function bulkAction(action){
         for item in all_items:
             items_by_card.setdefault(item['card_id'], []).append(item)
 
-        # Group cards by phase
+        # Group cards by phase — filter startpunt by project_type, rest are shared
         cards_by_phase = {}
         for card in all_cards:
             cards_by_phase.setdefault(card['phase'], []).append(card)
 
-        total_items = len(all_items)
-        total_done = len(completed_ids)
+        def relevant_cards_for_phase(ph, phase_cards):
+            if ph == 'startpunt' and project_type:
+                return [c for c in phase_cards if project_type in c['title'].lower()]
+            return phase_cards
+
+        # Compute totals using only relevant items for this person
+        relevant_item_ids = set()
+        for ph in valid_phases:
+            for card in relevant_cards_for_phase(ph, cards_by_phase.get(ph, [])):
+                for item in items_by_card.get(card['id'], []):
+                    relevant_item_ids.add(item['id'])
+        total_items = len(relevant_item_ids)
+        total_done = len(completed_ids & relevant_item_ids)
         overall_pct = round(total_done / total_items * 100) if total_items else 0
 
         body = html_header(f'Gov: {person["name"]}', True, username, user_id)
@@ -6235,9 +6326,7 @@ function bulkAction(action){
 
         # Cards grouped by phase
         for ph in valid_phases:
-            phase_cards = cards_by_phase.get(ph, [])
-            # only show cards matching this person's project_type (by title)
-            relevant_cards = [c for c in phase_cards if not project_type or project_type in c['title'].lower()]
+            relevant_cards = relevant_cards_for_phase(ph, cards_by_phase.get(ph, []))
             if not relevant_cards:
                 continue
             ph_color = self._gov_phase_color(ph)
