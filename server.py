@@ -3950,7 +3950,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             for user in users:
                 is_admin_user = bool(user['id'] == 1 or user['is_admin'])
                 is_comm_user = bool(user['is_comm'])
-                is_gov_user = bool(user.get('is_governance', 0))
+                is_gov_user = bool(user['is_governance'])
                 is_protected = user['id'] == 1  # id=1 can never be demoted
                 delete_btn = '' if is_protected else f'<a href="/users/delete?id={user["id"]}" class="btn btn-sm btn-danger" style="margin-left:0.5rem;" onclick="return confirm(\'Weet je zeker dat je {html.escape(user["username"])} wilt verwijderen?\');">Verwijder</a>'
                 if not is_protected:
@@ -3976,7 +3976,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         {'<span style="font-size:0.75rem;background:#c2185b;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">admin</span>' if is_admin_user else ''}
                         {'<span style="font-size:0.75rem;background:#7b1fa2;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">&#128101; comm</span>' if is_comm_user else ''}
                         {'<span style="font-size:0.75rem;background:#1565c0;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">&#9881; gov</span>' if is_gov_user else ''}
-                        <div style="font-size:0.8rem; color:#666;">Aangemaakt op {user['created_at'][:10]}</div>
+                        <div style="font-size:0.8rem; color:#666;">Aangemaakt op {(user['created_at'] or '')[:10]}</div>
                     </div>
                     <div>
                         <a href="/users/profile?id={user['id']}" class="btn btn-sm btn-secondary">Profiel</a>
@@ -4210,7 +4210,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         body += '<details style="margin-bottom:1rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128221; Toegevoegde notities (' + str(len(user_notes)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
         if user_notes:
             for n in user_notes:
-                snippet = (n['content'][:120] + '…') if len(n['content']) > 120 else n['content']
+                content_val = n['content'] or ''
+                snippet = (content_val[:120] + '…') if len(content_val) > 120 else content_val
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">
                     <small style="color:#888;">{n['created_at'][:10]}</small>
                     &middot; <a href="/customers/view?id={n['customer_id']}" style="color:#c2185b;">{html.escape(n['customer_name'])}</a>
