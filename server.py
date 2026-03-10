@@ -577,6 +577,53 @@ def init_db() -> None:
             );
         ''')
 
+        # Seed governance card templates for Startpunt (only if none exist yet)
+        cur.execute('SELECT COUNT(*) FROM governance_card_templates WHERE phase="startpunt"')
+        if cur.fetchone()[0] == 0:
+            startpunt_cards = [
+                ('Projectkaart 1: Communicatie', 'startpunt', 1, [
+                    'Projecttitel',
+                    'Doel van het project',
+                    'Onderwijsinstelling',
+                    'Link naar AI-onboardingsbot',
+                    'Link naar het overdrachtsdocument',
+                    'Belangrijkste deliverables',
+                    'Betrokken stakeholders',
+                ]),
+                ('Projectkaart 1: Werkveld', 'startpunt', 2, [
+                    'Projecttitel',
+                    'Doel van het project',
+                    'Onderwijsinstelling',
+                    'Link naar AI-onboardingsbot',
+                    'Belangrijkste deliverables',
+                    'Betrokken stakeholders',
+                ]),
+                ('Projectkaart 1: Evenementen', 'startpunt', 3, [
+                    'Projecttitel',
+                    'Doel van het project',
+                    'Onderwijsinstelling',
+                    'Link naar AI-onboardingsbot',
+                    'Link naar het overdrachtsdocument',
+                    'Belangrijkste deliverables',
+                    'Betrokken stakeholders',
+                ]),
+                ('Projectkaart 1: Onderwijs', 'startpunt', 4, [
+                    'Projecttitel',
+                    'Doel van het project',
+                    'Onderwijsinstelling',
+                    'Link naar AI-onboardingsbot',
+                    'Belangrijkste deliverables',
+                    'Betrokken stakeholders',
+                ]),
+            ]
+            for card_title, phase, order_idx, items in startpunt_cards:
+                cur.execute('INSERT INTO governance_card_templates (title, phase, order_index) VALUES (?, ?, ?)',
+                            (card_title, phase, order_idx))
+                card_id = cur.lastrowid
+                for i, item_title in enumerate(items):
+                    cur.execute('INSERT INTO governance_card_items (card_id, title, order_index) VALUES (?, ?, ?)',
+                                (card_id, item_title, i))
+
         # Create interactions table.  This table records each interaction (e.g.
         # call, email, message) associated with a customer.  Each record has
         # a type, an optional note and a timestamp.  Interactions are
