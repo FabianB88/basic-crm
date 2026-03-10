@@ -5761,7 +5761,6 @@ function bulkAction(action){
         tabs = [
             ('/gov/board', '&#9776; Board', 'board'),
             ('/gov/overview', '&#128200; Overzicht', 'overview'),
-            (f'/gov/person?id={user_id}', '&#128100; Mijn kaart', 'profile'),
         ]
         if is_admin(user_id):
             tabs.append(('/gov/cards', '&#9881; Kaartbeheer', 'cards'))
@@ -5857,14 +5856,15 @@ function bulkAction(action){
                 <div><button type="submit" class="btn btn-primary">Toevoegen</button></div>
             </form></div>'''
 
-        # Kanban columns
-        body += '<div style="display:flex;gap:0.75rem;overflow-x:auto;padding-bottom:1rem;" id="gov-board">'
+        # Kanban columns — full-width scroll container
+        body += '<div style="overflow-x:auto;margin:0 -1rem;padding:0 1rem 1rem 1rem;-webkit-overflow-scrolling:touch;">'
+        body += '<div style="display:flex;gap:1rem;width:max-content;padding-bottom:0.5rem;" id="gov-board">'
         for ph in valid_phases:
             color = self._gov_phase_color(ph)
             label = self._gov_phase_label(ph)
             persons = phase_map[ph]
-            body += f'''<div class="gov-column" data-phase="{ph}" style="min-width:200px;flex:0 0 200px;background:#f8f9fa;border-radius:8px;padding:0.6rem;border-top:3px solid {color};" ondragover="event.preventDefault();" ondrop="govDrop(event, '{ph}')">
-                <div style="font-weight:bold;color:{color};font-size:0.95rem;margin-bottom:0.5rem;">{label} <span style="font-size:0.8rem;color:#888;">({len(persons)})</span></div>'''
+            body += f'''<div class="gov-column" data-phase="{ph}" style="width:240px;flex:0 0 240px;background:#f5f7fa;border-radius:8px;padding:0.75rem;border-top:4px solid {color};" ondragover="event.preventDefault();" ondrop="govDrop(event, '{ph}')">
+                <div style="font-weight:bold;color:{color};font-size:0.95rem;margin-bottom:0.65rem;">{label} <span style="background:{color};color:#fff;border-radius:10px;padding:0.05rem 0.5rem;font-size:0.75rem;margin-left:0.3rem;">{len(persons)}</span></div>'''
             for person in persons:
                 done = progress_map.get(person['id'], 0)
                 pct = round(done / total_items * 100) if total_items else 0
@@ -5885,7 +5885,7 @@ function bulkAction(action){
                     </div>
                 </div>'''
             body += '</div>'
-        body += '</div>'
+        body += '</div></div>'
 
         # Drag & drop JS
         body += '''<script>
