@@ -218,6 +218,39 @@ else:
 # In‑memory session store: maps session_id -> user_id
 sessions: Dict[str, int] = {}
 
+# CSRF tokens: user_id -> csrf_token (generated at login)
+csrf_tokens: Dict[int, str] = {}
+
+# Login rate limiting: IP -> (fail_count, lockout_until_timestamp)
+login_lockouts: Dict[str, tuple] = {}
+_MAX_LOGIN_ATTEMPTS = 5
+_LOGIN_LOCKOUT_SECS = 30
+
+
+def _check_login_allowed(ip: str) -> tuple:
+    """Return (allowed: bool, wait_secs: int)."""
+    now = time.time()
+    entry = login_lockouts.get(ip)
+    if not entry:
+        return True, 0
+    count, lockout_until = entry
+    if lockout_until > now:
+        return False, int(lockout_until - now)
+    del login_lockouts[ip]
+    return True, 0
+
+
+def _record_login_failure(ip: str) -> None:
+    now = time.time()
+    entry = login_lockouts.get(ip)
+    count = entry[0] + 1 if entry and entry[1] <= now else 1
+    lockout_until = now + _LOGIN_LOCKOUT_SECS if count >= _MAX_LOGIN_ATTEMPTS else 0.0
+    login_lockouts[ip] = (count, lockout_until)
+
+
+def _record_login_success(ip: str) -> None:
+    login_lockouts.pop(ip, None)
+
 # ---------------------------------------------------------------------------
 # Audit logging
 # ---------------------------------------------------------------------------
@@ -1400,18 +1433,17 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 params = urllib.parse.parse_qs(data)
                 identifier = params.get('username', [''])[0].strip()
                 password_f = params.get('password', [''])[0]
+                client_ip = self.headers.get('X-Forwarded-For', self.client_address[0]).split(',')[0].strip()
+                allowed, wait_secs = _check_login_allowed(client_ip)
+                if not allowed:
+                    self.render_login(error=f'Te veel mislukte pogingen. Wacht {wait_secs} seconden.')
+                    return
                 user = verify_user(identifier, password_f)
                 if user:
-                    # Create session
+                    _record_login_success(client_ip)
                     session_id = secrets.token_hex(16)
                     sessions[session_id] = user['id']
-                    # Set the session cookie.  Include HttpOnly and SameSite
-                    # attributes to mitigate cross‑site scripting and
-                    # request forgery attacks.  We don't include the
-                    # ``Secure`` attribute because the app may run on
-                    # plain HTTP in development environments.  Hosting
-                    # providers like Render serve over HTTPS and will
-                    # automatically upgrade the cookie to secure.
+                    csrf_tokens[user['id']] = secrets.token_hex(32)
                     if not is_admin(user['id']) and is_comm_member(user['id']):
                         dest = '/comm/board'
                     elif not is_admin(user['id']) and is_gov_member(user['id']):
@@ -1422,10 +1454,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_header('Location', dest)
                     self.send_header(
                         'Set-Cookie',
-                        f'session_id={session_id}; Path=/; HttpOnly; SameSite=Lax'
+                        f'session_id={session_id}; Path=/; HttpOnly; Secure; SameSite=Lax'
                     )
                     self.end_headers()
                 else:
+                    _record_login_failure(client_ip)
                     self.render_login(error='Ongeldige inloggegevens.')
             else:
                 self.render_login()
@@ -1437,6 +1470,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 length = int(self.headers.get('Content-Length', 0))
                 data = self.rfile.read(length).decode('utf-8')
                 params = urllib.parse.parse_qs(data)
+                if not self._csrf_ok(params, user_id):
+                    self._send_html(html_header('Fout', True, username, user_id) + '<div class="container"><p style="color:#dc3545;">Ongeldige sessie. Laad de pagina opnieuw.</p></div>' + html_footer())
+                    return
                 current_pw = params.get('current_password', [''])[0]
                 new_pw = params.get('new_password', [''])[0]
                 confirm_pw = params.get('confirm_password', [''])[0]
@@ -1469,7 +1505,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     body = html_header('Wachtwoord wijzigen', True, username, user_id)
                     body += f'<h2 class="mt-4">&#128273; Wachtwoord wijzigen</h2>'
                     body += f'<div class="alert" style="background:#fdecea;color:#c62828;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.75rem;">{html.escape(error)}</div>'
-                    body += self._render_password_form()
+                    body += self._render_password_form(user_id)
                     body += html_footer()
                     self._send_html(body)
                 else:
@@ -1489,7 +1525,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 body = html_header('Wachtwoord wijzigen', True, username, user_id)
                 body += f'<h2 class="mt-4">&#128273; Wachtwoord wijzigen</h2>'
-                body += self._render_password_form()
+                body += self._render_password_form(user_id)
                 body += html_footer()
                 self._send_html(body)
         elif path == '/logout':
@@ -1511,7 +1547,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             # browsers to remove the cookie immediately.
             self.send_header(
                 'Set-Cookie',
-                'session_id=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'
+                'session_id=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax'
             )
             self.end_headers()
         elif path == '/dashboard':
@@ -2367,6 +2403,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 length = int(self.headers.get('Content-Length', 0))
                 data = self.rfile.read(length).decode('utf-8')
                 params = urllib.parse.parse_qs(data)
+                if not self._csrf_ok(params, user_id):
+                    self.respond_redirect('/users')
+                    return
                 new_username = params.get('username', [''])[0].strip()
                 new_email = params.get('email', [''])[0].strip()
                 new_password = params.get('password', [''])[0]
@@ -3992,6 +4031,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         body += f'''<div class="card">
             <div class="section-title">Nieuwe gebruiker toevoegen</div>
             <form method="post" action="/users/add">
+                {self._csrf_input(current_user_id)}
                 <label>Gebruikersnaam<br><input type="text" name="username" required style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
                 <label>E‑mail<br><input type="email" name="email" required style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
                 <label>Wachtwoord<br><input type="password" name="password" required style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
@@ -6161,9 +6201,25 @@ function bulkAction(action){
 
     # ── Governance render helpers ─────────────────────────────────────────
 
-    def _render_password_form(self) -> str:
-        return '''<div class="card" style="max-width:420px;">
+    def _csrf_token(self, user_id: int) -> str:
+        """Return CSRF token for this user, generating one if needed."""
+        if user_id not in csrf_tokens:
+            csrf_tokens[user_id] = secrets.token_hex(32)
+        return csrf_tokens[user_id]
+
+    def _csrf_input(self, user_id: int) -> str:
+        return f'<input type="hidden" name="csrf_token" value="{self._csrf_token(user_id)}">'
+
+    def _csrf_ok(self, params: dict, user_id: int) -> bool:
+        """Return True if the CSRF token in the POST params is valid."""
+        submitted = params.get('csrf_token', [''])[0]
+        expected = csrf_tokens.get(user_id, '')
+        return bool(expected and submitted == expected)
+
+    def _render_password_form(self, user_id: int) -> str:
+        return f'''<div class="card" style="max-width:420px;">
             <form method="POST" action="/account/password">
+                {self._csrf_input(user_id)}
                 <div style="margin-bottom:0.75rem;">
                     <label style="font-weight:bold;display:block;margin-bottom:0.25rem;">Huidig wachtwoord</label>
                     <input type="password" name="current_password" class="form-control" required autocomplete="current-password">
