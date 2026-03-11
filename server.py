@@ -2272,6 +2272,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <a href="/tasks/search" style="color:#c2185b;font-size:0.9rem;padding:0.4rem 0;">Wis filter</a>
                 </form>
             </div>'''
+            if is_admin(user_id):
+                body += '''<div style="margin-top:0.75rem;text-align:right;">
+                    <form method="POST" action="/tasks/delete-all-open" onsubmit="return confirm('Alle openstaande taken verwijderen? Dit kan niet ongedaan worden.');">
+                        <button type="submit" style="background:#dc3545;color:#fff;border:none;border-radius:4px;padding:0.35rem 1rem;font-size:0.85rem;cursor:pointer;">&#128465; Alle open taken verwijderen</button>
+                    </form>
+                </div>'''
             body += f'<div class="card"><div class="section-title">Resultaten ({len(results)})</div>'
             if results:
                 body += '<table><thead><tr><th>Taak</th><th>Klant</th><th>Toegewezen aan</th><th>Vervaldatum</th><th>Status</th></tr></thead><tbody>'
@@ -2297,6 +2303,15 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.end_headers()
             self.wfile.write(body.encode('utf-8'))
+        elif path == '/tasks/delete-all-open':
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/tasks/search')
+                return
+            if method == 'POST':
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.execute("DELETE FROM tasks WHERE status='open'")
+                    conn.commit()
+            self.respond_redirect('/tasks/search')
         elif path == '/tasks/export':
             # Export all tasks to CSV.
             if not logged_in:
