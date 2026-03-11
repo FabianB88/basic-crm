@@ -410,6 +410,11 @@ def init_db() -> None:
             cur.execute('SELECT relation_type FROM customers LIMIT 1')
         except sqlite3.OperationalError:
             cur.execute("ALTER TABLE customers ADD COLUMN relation_type TEXT DEFAULT 'extern'")
+        # Ensure role column exists (for intern contacts: Docent/Onderzoeker/etc.)
+        try:
+            cur.execute('SELECT role FROM customers LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE customers ADD COLUMN role TEXT")
         # Create notes table
         cur.execute('''
             CREATE TABLE IF NOT EXISTS notes (
@@ -1038,7 +1043,8 @@ def check_and_create_reminders() -> None:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute('''
-            SELECT cu.customer_id, cu.user_id, c.name AS customer_name
+            SELECT cu.customer_id, cu.user_id, c.name AS customer_name,
+                   COALESCE(c.relation_type, 'extern') AS relation_type
             FROM customer_users cu
             JOIN customers c ON cu.customer_id = c.id
         ''')
@@ -1081,7 +1087,8 @@ def check_and_create_reminders() -> None:
                 last_dt = datetime.datetime.strptime(last_contact[:10], '%Y-%m-%d')
             except ValueError:
                 continue
-            reminder_due = last_dt + datetime.timedelta(days=90)
+            reminder_days = 180 if link['relation_type'] == 'intern' else 90
+            reminder_due = last_dt + datetime.timedelta(days=reminder_days)
             due_str = reminder_due.strftime('%Y-%m-%d')
             last_str = last_dt.strftime('%d-%m-%Y')
             # Check for existing open reminder for this customer+user
@@ -1606,6 +1613,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 relation_type = params.get('relation_type', ['extern'])[0].strip()
                 if relation_type not in ('intern', 'extern'):
                     relation_type = 'extern'
+                role = params.get('role', [''])[0].strip() or None
                 # Collect dynamic field values.  Dynamic field inputs use the
                 # prefix 'cf_' followed by the field name.  Additionally, the
 
@@ -1644,7 +1652,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     if cur.fetchone():
                         self.render_customer_form(None, error='Er bestaat al een klant met dit e‑mailadres.')
                         return
-                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, relation_type, created_by, custom_fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, relation_type, role, created_by, custom_fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                                 (name,
                                  email_c,
                                  phone or None,
@@ -1653,6 +1661,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                  tags or None,
                                  category,
                                  relation_type,
+                                 role,
                                  user_id,
                                  custom_fields))
                     cid_new = cur.lastrowid
@@ -1710,6 +1719,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 relation_type = params.get('relation_type', ['extern'])[0].strip()
                 if relation_type not in ('intern', 'extern'):
                     relation_type = 'extern'
+                role = params.get('role', [''])[0].strip() or None
                 # Parse dynamic and raw custom fields.  Merge into a dict and
                 # encode as JSON for storage.  Supports JSON or key=value lines
                 # for raw custom_fields textarea.
@@ -1756,6 +1766,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                         tags=?,
                                         category=?,
                                         relation_type=?,
+                                        role=?,
                                         custom_fields=?,
                                         updated_at=CURRENT_TIMESTAMP
                                     WHERE id = ?''',
@@ -1767,6 +1778,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                  tags or None,
                                  category,
                                  relation_type,
+                                 role,
                                  custom_fields,
                                  cid_int))
                     conn.commit()
@@ -4511,6 +4523,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             customers = cur.fetchall()
             cur.execute('SELECT id, username FROM users ORDER BY username ASC')
             all_users_bulk = cur.fetchall()
+            # Build lookup: customer_id → list of accountmanager usernames
+            cur.execute('''SELECT cu.customer_id, u.username FROM customer_users cu
+                           JOIN users u ON cu.user_id = u.id''')
+            _am_map: dict = {}
+            for _r in cur.fetchall():
+                _am_map.setdefault(_r[0], []).append(_r[1])
         logged_in, _, username = self.parse_session()
         _, uid, _ = self.parse_session()
         body = html_header('Klanten', logged_in, username, uid)
@@ -4590,7 +4608,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <th>Tags</th>
                     <th>E‑mail</th>
                     <th>Telefoon</th>
-                    <th>Toegevoegd door</th>
+                    <th>Accountmanager</th>
                     {_th('Datum','created_at')}
                     <th class="text-end">Acties</th>
                 </tr>
@@ -4604,14 +4622,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 rel = (cust['relation_type'] or 'extern') if 'relation_type' in cust.keys() else 'extern'
                 rel_color = '#1565c0' if rel == 'intern' else '#555'
                 rel_label = f'<span style="background:{"#e3f0ff" if rel == "intern" else "#f0f0f0"};color:{rel_color};border-radius:12px;padding:0.15rem 0.6rem;font-size:0.82rem;font-weight:bold;">{rel.capitalize()}</span>'
-                creator = '-'
-                try:
-                    if cust['created_by']:
-                        u = get_user_by_id(cust['created_by'])
-                        if u:
-                            creator = html.escape(u['username'])
-                except Exception:
-                    creator = '-'
+                am_names = _am_map.get(cust['id'], [])
+                creator = ', '.join(html.escape(n) for n in am_names) if am_names else '-'
                 body += f'''<tr>
                     <td><input type="checkbox" name="selected_ids" value="{cust['id']}" class="row-cb" onchange="updateBulk()"></td>
                     <td><a href="/customers/view?id={cust['id']}">{html.escape(cust['name'])}</a></td>
@@ -4707,6 +4719,7 @@ function bulkAction(action){
         tags = customer['tags'] if customer else ''
         category = customer['category'] if customer else 'klant'
         relation_type = (customer.get('relation_type') or 'extern') if customer else 'extern'
+        role_val = (customer.get('role') or '') if customer else ''
         website = customer.get('website', '') if customer else ''
         industry = customer.get('industry', '') if customer else ''
         company_size = customer.get('company_size', '') if customer else ''
@@ -4802,23 +4815,71 @@ function bulkAction(action){
                                 <input type="text" class="form-control" id="tags" name="tags" value="{html.escape(tags or '')}">
                             </div>
                             <div class="mb-3">
+                                <label class="form-label">Relatie</label><br>
+                                <span class="user-pill">
+                                    <input type="radio" name="relation_type" value="extern" id="rel_extern" {'checked' if relation_type != 'intern' else ''} onchange="toggleRolType()">
+                                    <label for="rel_extern">Extern</label>
+                                </span>
+                                <span class="user-pill">
+                                    <input type="radio" name="relation_type" value="intern" id="rel_intern" {'checked' if relation_type == 'intern' else ''} onchange="toggleRolType()">
+                                    <label for="rel_intern">Intern</label>
+                                </span>
+                            </div>
+                            <div class="mb-3" id="field-category" style="{'display:none' if relation_type == 'intern' else ''}">
                                 <label for="category" class="form-label">Type</label>
                                 <select class="form-select" id="category" name="category">
                                     <option value="klant" {'selected' if category == 'klant' else ''}>Klant</option>
                                     <option value="netwerk" {'selected' if category == 'netwerk' else ''}>Netwerk</option>
                                 </select>
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label">Relatie</label><br>
-                                <span class="user-pill">
-                                    <input type="radio" name="relation_type" value="extern" id="rel_extern" {'checked' if relation_type != 'intern' else ''}>
-                                    <label for="rel_extern">Extern</label>
-                                </span>
-                                <span class="user-pill">
-                                    <input type="radio" name="relation_type" value="intern" id="rel_intern" {'checked' if relation_type == 'intern' else ''}>
-                                    <label for="rel_intern">Intern</label>
-                                </span>
+                            <div class="mb-3" id="field-rol" style="{'display:none' if relation_type != 'intern' else ''}">
+                                <label for="role_select" class="form-label">Rol</label>
+                                <select class="form-select" id="role_select" onchange="toggleRolCustom(this)">
+                                    {''.join(f'<option value="{r}" {"selected" if role_val == r else ""}>{r}</option>' for r in ['Docent','Onderzoeker','Manager','Werknemer','Ondersteuner'])}
+                                    <option value="anders" {'selected' if role_val and role_val not in ["Docent","Onderzoeker","Manager","Werknemer","Ondersteuner"] else ''}>Anders...</option>
+                                </select>
+                                <input type="text" class="form-control mt-2" id="role_custom" name="role" placeholder="Vul rol in..."
+                                    value="{html.escape(role_val)}"
+                                    style="{'display:none' if not role_val or role_val in ['Docent','Onderzoeker','Manager','Werknemer','Ondersteuner'] else ''}">
                             </div>
+                            <script>
+                            function toggleRolType() {{
+                                var isIntern = document.getElementById('rel_intern').checked;
+                                document.getElementById('field-category').style.display = isIntern ? 'none' : '';
+                                document.getElementById('field-rol').style.display = isIntern ? '' : 'none';
+                                if (isIntern) {{
+                                    var sel = document.getElementById('role_select');
+                                    toggleRolCustom(sel);
+                                }}
+                            }}
+                            function toggleRolCustom(sel) {{
+                                var custom = document.getElementById('role_custom');
+                                if (sel.value === 'anders') {{
+                                    custom.style.display = '';
+                                    custom.required = true;
+                                }} else {{
+                                    custom.style.display = 'none';
+                                    custom.required = false;
+                                    custom.value = sel.value;
+                                }}
+                            }}
+                            // Set role_custom value on form submit when a preset is selected
+                            (function() {{
+                                var form = document.querySelector('form[method="post"]');
+                                if (form) {{
+                                    form.addEventListener('submit', function() {{
+                                        var isIntern = document.getElementById('rel_intern').checked;
+                                        if (isIntern) {{
+                                            var sel = document.getElementById('role_select');
+                                            var custom = document.getElementById('role_custom');
+                                            if (sel.value !== 'anders') {{
+                                                custom.value = sel.value;
+                                            }}
+                                        }}
+                                    }});
+                                }}
+                            }})();
+                            </script>
                             {dynamic_fields_html}
                             <div class="mb-3">
                                 <label for="custom_fields" class="form-label">Extra velden (JSON of key=value per regel)</label>
@@ -4836,7 +4897,7 @@ function bulkAction(action){
                                 <div style="margin-top:0.3rem;">
                                     {users_checkboxes_html}
                                 </div>
-                                <small class="form-text text-muted">Klik op een naam om die accountmanager te koppelen. Gekoppelde managers ontvangen na 90 dagen geen contact automatisch een herinnering.</small>
+                                <small class="form-text text-muted">Klik op een naam om die accountmanager te koppelen. Gekoppelde managers ontvangen automatisch een herinnering (intern: 180 dagen, extern: 90 dagen).</small>
                             </div>
                         </div>
                     </div>
@@ -4969,7 +5030,7 @@ function bulkAction(action){
             {f'<p><span class="icon">&#127968;</span>{html.escape(customer["address"])} </p>' if customer['address'] else ''}
             {f'<p><span class="icon">&#128188;</span>{html.escape(customer["company"])} </p>' if customer['company'] else ''}
             {tags_html}
-            <p><span class="icon">&#128221;</span>Type: {category_display} &middot; {(customer.get('relation_type') or 'extern').capitalize()}</p>
+            <p><span class="icon">&#128221;</span>{'Rol: ' + html.escape(customer.get('role') or '-') if (customer.get('relation_type') or 'extern') == 'intern' else 'Type: ' + category_display} &middot; {(customer.get('relation_type') or 'extern').capitalize()}</p>
             <p><span class="icon">&#128100;</span>Toegevoegd door: {creator_name}</p>
             <p><span class="icon">&#128197;</span>Aangemaakt op {customer['created_at']}</p>
             {linked_users_html}
