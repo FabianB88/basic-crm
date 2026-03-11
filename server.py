@@ -5703,8 +5703,9 @@ function bulkAction(action){
                            CASE ct.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END''', (week_end,))
             week_tasks = cur.fetchall()
             cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.priority,
-                           u.username AS assigned_to_name
+                           u.username AS assigned_to_name, cg.title AS goal_title
                            FROM comm_tasks ct LEFT JOIN users u ON ct.assigned_to = u.id
+                           LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
                            WHERE ct.status NOT IN ('klaar','archief') AND (ct.due_date IS NULL OR ct.due_date > ?)
                            AND ct.priority = 'hoog'
                            ORDER BY COALESCE(ct.due_date,'9999-12-31') ASC''', (week_end,))
@@ -5766,8 +5767,9 @@ function bulkAction(action){
                            WHERE ct.assigned_to = ? AND ct.status = 'klaar'
                            ORDER BY ct.created_at DESC LIMIT 10''', (profile_id,))
             my_done = cur.fetchall()
-            cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.priority
-                           FROM comm_tasks ct
+            cur.execute('''SELECT ct.id, ct.title, ct.status, ct.due_date, ct.priority,
+                           cg.title AS goal_title, ct.reminder_note
+                           FROM comm_tasks ct LEFT JOIN comm_goals cg ON ct.goal_id = cg.id
                            WHERE ct.created_by = ? AND (ct.assigned_to IS NULL OR ct.assigned_to != ?)
                            AND ct.status NOT IN ('klaar','archief')
                            ORDER BY COALESCE(ct.due_date,'9999-12-31') ASC''', (profile_id, profile_id))
