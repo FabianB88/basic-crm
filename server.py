@@ -417,6 +417,11 @@ def init_db() -> None:
             cur.execute("ALTER TABLE customers ADD COLUMN role TEXT")
         # Clear 'klant'/'netwerk' category for intern contacts (replaced by role field)
         cur.execute("UPDATE customers SET category=NULL WHERE relation_type='intern' AND (category='klant' OR category='netwerk')")
+        # One-time migration: clean slate — delete all open tasks
+        cur.execute("CREATE TABLE IF NOT EXISTS _migrations (name TEXT PRIMARY KEY)")
+        if not cur.execute("SELECT 1 FROM _migrations WHERE name='clean_open_tasks_2026'").fetchone():
+            cur.execute("DELETE FROM tasks WHERE status='open'")
+            cur.execute("INSERT INTO _migrations (name) VALUES ('clean_open_tasks_2026')")
         # Create notes table
         cur.execute('''
             CREATE TABLE IF NOT EXISTS notes (
@@ -1089,7 +1094,7 @@ def check_and_create_reminders() -> None:
                 last_dt = datetime.datetime.strptime(last_contact[:10], '%Y-%m-%d')
             except ValueError:
                 continue
-            reminder_days = 180 if link['relation_type'] == 'intern' else 90
+            reminder_days = 180 if link['relation_type'] == 'intern' else 60
             reminder_due = last_dt + datetime.timedelta(days=reminder_days)
             due_str = reminder_due.strftime('%Y-%m-%d')
             last_str = last_dt.strftime('%d-%m-%Y')
@@ -4903,7 +4908,7 @@ function bulkAction(action){
                                 <div style="margin-top:0.3rem;">
                                     {users_checkboxes_html}
                                 </div>
-                                <small class="form-text text-muted">Klik op een naam om die accountmanager te koppelen. Gekoppelde managers ontvangen automatisch een herinnering (intern: 180 dagen, extern: 90 dagen).</small>
+                                <small class="form-text text-muted">Klik op een naam om die accountmanager te koppelen. Gekoppelde managers ontvangen automatisch een herinnering (intern: 6 maanden, extern: 2 maanden).</small>
                             </div>
                         </div>
                     </div>
