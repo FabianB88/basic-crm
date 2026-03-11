@@ -636,6 +636,23 @@ def init_db() -> None:
             # Backfill from title: titles like "Projectkaart X: Communicatie" → project_type='communicatie'
             for pt in ['communicatie', 'werkveld', 'evenementen', 'onderwijs']:
                 cur.execute("UPDATE governance_card_templates SET project_type=? WHERE lower(title) LIKE ?", (pt, f'%{pt}%'))
+        # Add consent_given to governance_persons if missing
+        try:
+            cur.execute('SELECT consent_given FROM governance_persons LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE governance_persons ADD COLUMN consent_given INTEGER DEFAULT 0')
+        # Create governance_notes table if missing
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS governance_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_id INTEGER NOT NULL,
+                note_type TEXT NOT NULL DEFAULT 'coaching',
+                content TEXT NOT NULL,
+                created_by INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (person_id) REFERENCES governance_persons(id) ON DELETE CASCADE
+            );
+        ''')
 
         # Seed all governance card templates (one check per phase)
         _phases_items = {
@@ -3592,6 +3609,71 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             redirect_raw = query_params.get('redirect', [None])[0]
             redirect_to = redirect_raw if redirect_raw else f'/gov/person?id={pid}'
             self.respond_redirect(redirect_to)
+        elif path == '/gov/profiles':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_gov_profiles(user_id, username)
+        elif path == '/gov/profiles/consent':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            pid_raw = query_params.get('id', [None])[0]
+            try:
+                pid = int(pid_raw) if pid_raw else None
+            except ValueError:
+                pid = None
+            if pid:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute('SELECT consent_given FROM governance_persons WHERE id=?', (pid,))
+                    row = cur.fetchone()
+                    if row:
+                        new_val = 0 if row['consent_given'] else 1
+                        cur.execute('UPDATE governance_persons SET consent_given=? WHERE id=?', (new_val, pid))
+                        conn.commit()
+            self.respond_redirect('/gov/profiles')
+        elif path == '/gov/notes/add':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                pid_raw = params.get('person_id', [None])[0]
+                note_type = params.get('note_type', ['coaching'])[0].strip()
+                content = params.get('content', [''])[0].strip()
+                valid_types = ['coaching', 'intervisie', 'aandachtspunt']
+                if note_type not in valid_types:
+                    note_type = 'coaching'
+                try:
+                    pid = int(pid_raw) if pid_raw else None
+                except ValueError:
+                    pid = None
+                if pid and content:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        cur = conn.cursor()
+                        cur.execute('INSERT INTO governance_notes (person_id, note_type, content, created_by) VALUES (?, ?, ?, ?)',
+                            (pid, note_type, content, user_id))
+                        conn.commit()
+            self.respond_redirect('/gov/profiles')
+        elif path == '/gov/notes/delete':
+            if not logged_in or not is_gov_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            nid_raw = query_params.get('id', [None])[0]
+            try:
+                nid = int(nid_raw) if nid_raw else None
+            except ValueError:
+                nid = None
+            if nid:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute('DELETE FROM governance_notes WHERE id=?', (nid,))
+                    conn.commit()
+            self.respond_redirect('/gov/profiles')
         elif path == '/gov/cards':
             if not logged_in or not is_gov_member(user_id):
                 self.respond_redirect('/dashboard')
@@ -6241,6 +6323,7 @@ function bulkAction(action){
         tabs = [
             ('/gov/board', '&#9776; Board', 'board'),
             ('/gov/overview', '&#128200; Overzicht', 'overview'),
+            ('/gov/profiles', '&#128101; Personen', 'profiles'),
         ]
         if is_admin(user_id):
             tabs.append(('/gov/cards', '&#9881; Kaartbeheer', 'cards'))
@@ -6631,6 +6714,118 @@ function bulkAction(action){
             d.style.display = d.style.display === 'none' ? 'block' : 'none';
         }
         </script>'''
+        body += html_footer()
+        self._send_html(body)
+
+    def render_gov_profiles(self, user_id: int, username: str) -> None:
+        """Render the governance persons profiles page with notes and consent."""
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM governance_persons ORDER BY name ASC')
+            all_persons = cur.fetchall()
+            cur.execute('SELECT gn.*, u.username AS author FROM governance_notes gn LEFT JOIN users u ON gn.created_by = u.id ORDER BY gn.created_at DESC')
+            all_notes = cur.fetchall()
+
+        notes_by_person = {}
+        for note in all_notes:
+            notes_by_person.setdefault(note['person_id'], []).append(note)
+
+        type_labels = {'coaching': '&#128172; Coaching', 'intervisie': '&#128101; Intervisie', 'aandachtspunt': '&#127919; Aandachtspunt'}
+        type_colors = {'coaching': '#1565c0', 'intervisie': '#7b1fa2', 'aandachtspunt': '#ef6c00'}
+        pt_colors = {'communicatie': '#c2185b', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
+
+        body = html_header('Governance Personen', True, username, user_id)
+        body += '<h2 class="mt-4">&#128101; Personen &amp; Profiel</h2>'
+        body += self._gov_nav('profiles', user_id)
+
+        if not all_persons:
+            body += '<div class="card"><p>Nog geen personen toegevoegd.</p></div>'
+        else:
+            for person in all_persons:
+                pid = person['id']
+                phase_color = self._gov_phase_color(person['phase'])
+                phase_label = self._gov_phase_label(person['phase'])
+                pt = person['project_type'] or ''
+                pt_badge = f'<span style="font-size:0.75rem;background:{pt_colors.get(pt,"#888")};color:#fff;border-radius:3px;padding:0.1rem 0.4rem;margin-left:0.4rem;">{pt.capitalize()}</span>' if pt else ''
+                consent = person['consent_given']
+                consent_icon = '&#9989;' if consent else '&#9744;'
+                consent_color = '#388e3c' if consent else '#888'
+                consent_label = 'Akkoord gegeven' if consent else 'Nog geen akkoord'
+
+                person_notes = notes_by_person.get(pid, [])
+                aandachtspunten = [n for n in person_notes if n['note_type'] == 'aandachtspunt']
+                other_notes = [n for n in person_notes if n['note_type'] != 'aandachtspunt']
+
+                body += f'''<div class="card" style="margin-bottom:1rem;border-left:4px solid {phase_color};">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem;">
+                        <div>
+                            <a href="/gov/person?id={pid}" style="font-size:1.1rem;font-weight:bold;color:#1565c0;text-decoration:none;">{html.escape(person['name'])}</a>
+                            {pt_badge}
+                            <span style="font-size:0.8rem;background:{phase_color};color:#fff;border-radius:10px;padding:0.1rem 0.5rem;margin-left:0.4rem;">{phase_label}</span>
+                        </div>
+                        <a href="/gov/profiles/consent?id={pid}" style="font-size:0.8rem;color:{consent_color};text-decoration:none;border:1px solid {consent_color};border-radius:4px;padding:0.2rem 0.5rem;" title="Klik om akkoord te wisselen">{consent_icon} {consent_label}</a>
+                    </div>'''
+
+                if person['notes']:
+                    body += f'<div style="font-size:0.85rem;color:#555;margin-top:0.4rem;font-style:italic;">{html.escape(person["notes"])}</div>'
+
+                # Aandachtspunten (prominent)
+                if aandachtspunten:
+                    body += '<div style="margin-top:0.6rem;">'
+                    body += '<div style="font-size:0.85rem;font-weight:bold;color:#ef6c00;margin-bottom:0.3rem;">&#127919; Persoonlijke aandachtspunten</div>'
+                    for note in aandachtspunten:
+                        body += f'''<div style="background:#fff8e1;border-left:3px solid #ef6c00;padding:0.4rem 0.6rem;margin-bottom:0.3rem;border-radius:0 4px 4px 0;font-size:0.88rem;display:flex;justify-content:space-between;align-items:flex-start;">
+                            <div>
+                                <span>{html.escape(note["content"])}</span>
+                                <div style="font-size:0.72rem;color:#aaa;margin-top:0.15rem;">{(note["created_at"] or "")[:10]} — {html.escape(note["author"] or "?")}</div>
+                            </div>
+                            <a href="/gov/notes/delete?id={note['id']}" style="color:#dc3545;font-size:0.75rem;text-decoration:none;flex-shrink:0;margin-left:0.5rem;" onclick="return confirm('Verwijderen?');">&#128465;</a>
+                        </div>'''
+                    body += '</div>'
+
+                # Coaching + intervisie notities (collapsible)
+                if other_notes:
+                    body += f'<details style="margin-top:0.5rem;"><summary style="cursor:pointer;font-size:0.85rem;color:#555;">&#128196; {len(other_notes)} notitie(s) — klik om te tonen</summary>'
+                    body += '<div style="margin-top:0.4rem;">'
+                    for note in other_notes:
+                        ncolor = type_colors.get(note['note_type'], '#888')
+                        nlabel = type_labels.get(note['note_type'], note['note_type'])
+                        body += f'''<div style="border-left:3px solid {ncolor};padding:0.4rem 0.6rem;margin-bottom:0.35rem;border-radius:0 4px 4px 0;font-size:0.88rem;display:flex;justify-content:space-between;align-items:flex-start;">
+                            <div>
+                                <span style="font-size:0.72rem;background:{ncolor};color:#fff;border-radius:3px;padding:0.05rem 0.3rem;margin-right:0.3rem;">{nlabel}</span>
+                                <span>{html.escape(note["content"])}</span>
+                                <div style="font-size:0.72rem;color:#aaa;margin-top:0.15rem;">{(note["created_at"] or "")[:10]} — {html.escape(note["author"] or "?")}</div>
+                            </div>
+                            <a href="/gov/notes/delete?id={note['id']}" style="color:#dc3545;font-size:0.75rem;text-decoration:none;flex-shrink:0;margin-left:0.5rem;" onclick="return confirm('Verwijderen?');">&#128465;</a>
+                        </div>'''
+                    body += '</div></details>'
+
+                # Add note form
+                body += f'''<details style="margin-top:0.6rem;"><summary style="cursor:pointer;font-size:0.85rem;color:#1565c0;">&#43; Notitie / aandachtspunt toevoegen</summary>
+                    <div style="margin-top:0.4rem;background:#f8f9fa;border-radius:4px;padding:0.6rem;">
+                        <form method="POST" action="/gov/notes/add">
+                            <input type="hidden" name="person_id" value="{pid}">
+                            <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:flex-end;">
+                                <div>
+                                    <label style="font-size:0.8rem;display:block;margin-bottom:0.15rem;">Type</label>
+                                    <select name="note_type" class="form-control" style="font-size:0.85rem;">
+                                        <option value="coaching">&#128172; Coaching</option>
+                                        <option value="intervisie">&#128101; Intervisie</option>
+                                        <option value="aandachtspunt">&#127919; Aandachtspunt</option>
+                                    </select>
+                                </div>
+                                <div style="flex:1;min-width:220px;">
+                                    <label style="font-size:0.8rem;display:block;margin-bottom:0.15rem;">Notitie</label>
+                                    <textarea name="content" class="form-control" rows="2" required style="font-size:0.85rem;" placeholder="Notitie..."></textarea>
+                                </div>
+                                <div><button type="submit" class="btn btn-primary" style="font-size:0.85rem;">Opslaan</button></div>
+                            </div>
+                        </form>
+                    </div></details>'''
+
+                body += '</div>'
+
         body += html_footer()
         self._send_html(body)
 
