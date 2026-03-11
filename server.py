@@ -415,6 +415,8 @@ def init_db() -> None:
             cur.execute('SELECT role FROM customers LIMIT 1')
         except sqlite3.OperationalError:
             cur.execute("ALTER TABLE customers ADD COLUMN role TEXT")
+        # Clear 'klant'/'netwerk' category for intern contacts (replaced by role field)
+        cur.execute("UPDATE customers SET category=NULL WHERE relation_type='intern' AND (category='klant' OR category='netwerk')")
         # Create notes table
         cur.execute('''
             CREATE TABLE IF NOT EXISTS notes (
@@ -4603,7 +4605,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <th style="width:32px;"><input type="checkbox" id="select-all" onclick="toggleAll(this)" title="Alles selecteren"></th>
                     {_th('Naam','name')}
                     {_th('Bedrijf','company')}
-                    {_th('Type','category')}
+                    <th>Type / Rol</th>
                     {_th('Relatie','relation_type')}
                     <th>Tags</th>
                     <th>E‑mail</th>
@@ -4618,8 +4620,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         if customers:
             for cust in customers:
                 tags_display = ', '.join([html.escape(tag.strip()) for tag in (cust['tags'] or '').split(',')]) if cust['tags'] else '-'
-                category_display = (cust['category'] or 'klant').capitalize() if 'category' in cust.keys() else 'Klant'
                 rel = (cust['relation_type'] or 'extern') if 'relation_type' in cust.keys() else 'extern'
+                if rel == 'intern':
+                    role_v = cust['role'] if 'role' in cust.keys() else None
+                    category_display = html.escape(role_v) if role_v else '<span style="color:#aaa;font-style:italic;">—</span>'
+                else:
+                    category_display = (cust['category'] or 'klant').capitalize() if 'category' in cust.keys() else 'Klant'
                 rel_color = '#1565c0' if rel == 'intern' else '#555'
                 rel_label = f'<span style="background:{"#e3f0ff" if rel == "intern" else "#f0f0f0"};color:{rel_color};border-radius:12px;padding:0.15rem 0.6rem;font-size:0.82rem;font-weight:bold;">{rel.capitalize()}</span>'
                 am_names = _am_map.get(cust['id'], [])
