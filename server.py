@@ -1859,6 +1859,29 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(302)
             self.send_header('Location', '/customers')
             self.end_headers()
+        elif path == '/customers/bulk-link-empty':
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/customers')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                params = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'))
+                try:
+                    target_uid = int(params.get('user_id', [''])[0])
+                except (ValueError, IndexError):
+                    self.respond_redirect('/customers')
+                    return
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.execute('''
+                        INSERT OR IGNORE INTO customer_users (customer_id, user_id)
+                        SELECT c.id, ?
+                        FROM customers c
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM customer_users cu WHERE cu.customer_id = c.id
+                        )
+                    ''', (target_uid,))
+                    conn.commit()
+            self.respond_redirect('/customers')
         elif path == '/customers/bulk':
             # Bulk action on selected customers (POST only).
             if not logged_in:
@@ -4617,6 +4640,15 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 <a href="/customers/add" class="btn btn-primary">+ Toevoegen</a>
             </div>
         </div>'''
+        if is_admin(user_id):
+            admin_user_opts = '<option value="">-- Kies gebruiker --</option>' + ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users_bulk)
+            body += f'''<div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:0.5rem 1rem;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                <span style="font-size:0.85rem;color:#555;">&#128279; Koppel lege accountmanagers aan:</span>
+                <form method="POST" action="/customers/bulk-link-empty" style="display:flex;gap:0.5rem;align-items:center;" onsubmit="return confirm('Alle relaties zonder accountmanager koppelen aan de gekozen gebruiker?');">
+                    <select name="user_id" style="padding:0.25rem 0.5rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem;" required>{admin_user_opts}</select>
+                    <button type="submit" class="btn btn-sm btn-primary">Koppelen</button>
+                </form>
+            </div>'''
         # Bulk action bar
         user_opts_bulk = '<option value="">-- Kies gebruiker --</option>' + ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users_bulk)
         body += f'''<div id="bulk-bar" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.5rem;gap:0.75rem;align-items:center;flex-wrap:wrap;">
