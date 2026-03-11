@@ -580,6 +580,23 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         ''')
+        # Events Gov: governance checks for events
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS events_gov_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                event_context TEXT,
+                assigned_to INTEGER,
+                status TEXT NOT NULL DEFAULT 'open',
+                due_date DATE,
+                priority TEXT DEFAULT 'medium',
+                created_by INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL,
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+            );
+        ''')
         # Add board_status to comm_content if missing (allows showing content on kanban board)
         try:
             cur.execute('SELECT board_status FROM comm_content LIMIT 1')
@@ -3018,6 +3035,68 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 cur.execute("UPDATE comm_tasks SET status = 'archief' WHERE status = 'klaar'")
                 conn.commit()
             self.respond_redirect('/comm/board')
+        elif path == '/comm/events-gov':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            self.render_events_gov(user_id, username)
+        elif path == '/comm/events-gov/add':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                params = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'))
+                title = params.get('title', [''])[0].strip()
+                description = params.get('description', [''])[0].strip()
+                event_context = params.get('event_context', [''])[0].strip()
+                due_date = params.get('due_date', [''])[0].strip() or None
+                priority = params.get('priority', ['medium'])[0].strip()
+                if priority not in ('hoog', 'medium', 'laag'):
+                    priority = 'medium'
+                try:
+                    assigned_to = int(params.get('assigned_to', [''])[0]) if params.get('assigned_to', [''])[0] else None
+                except ValueError:
+                    assigned_to = None
+                if title:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        conn.execute('''INSERT INTO events_gov_tasks (title, description, event_context, assigned_to, due_date, priority, created_by)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                                     (title, description or None, event_context or None, assigned_to, due_date, priority, user_id))
+                        conn.commit()
+            self.respond_redirect('/comm/events-gov')
+        elif path == '/comm/events-gov/status':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                params = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'))
+                try:
+                    tid = int(params.get('id', [''])[0])
+                    new_status = params.get('status', [''])[0].strip()
+                    if new_status in ('open', 'in_check', 'klaar'):
+                        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                            conn.execute('UPDATE events_gov_tasks SET status=? WHERE id=?', (new_status, tid))
+                            conn.commit()
+                except (ValueError, IndexError):
+                    pass
+            self.respond_redirect('/comm/events-gov')
+        elif path == '/comm/events-gov/delete':
+            if not logged_in or not is_comm_member(user_id):
+                self.respond_redirect('/dashboard')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                params = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'))
+                try:
+                    tid = int(params.get('id', [''])[0])
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        conn.execute('DELETE FROM events_gov_tasks WHERE id=?', (tid,))
+                        conn.commit()
+                except (ValueError, IndexError):
+                    pass
+            self.respond_redirect('/comm/events-gov')
         elif path == '/comm/archived':
             if not logged_in or not is_comm_member(user_id):
                 self.respond_redirect('/dashboard')
@@ -5284,6 +5363,7 @@ function bulkAction(action){
             ('/comm/goals', '&#127945; Doelen', 'goals'),
             ('/comm/week', '&#128197; Week', 'week'),
             ('/comm/overview', '&#128203; Overzicht', 'overview'),
+            ('/comm/events-gov', '&#127937; Events Gov', 'events-gov'),
             (f'/comm/profile?id={user_id}', '&#128100; Mijn profiel', 'profile'),
             ('/comm/search', '&#128269; Zoeken', 'search'),
             ('/comm/dates', '&#128197; Datums', 'dates'),
@@ -5685,6 +5765,90 @@ function bulkAction(action){
         body += html_footer()
         self._send_html(body)
 
+    def render_events_gov(self, user_id: int, username: str) -> None:
+        """Events Gov board: governance checks for events."""
+        today_iso = datetime.date.today().isoformat()
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''SELECT eg.*, u.username AS assigned_name, cb.username AS created_by_name
+                           FROM events_gov_tasks eg
+                           LEFT JOIN users u ON eg.assigned_to = u.id
+                           LEFT JOIN users cb ON eg.created_by = cb.id
+                           ORDER BY CASE eg.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                                    COALESCE(eg.due_date,'9999-12-31') ASC, eg.created_at DESC''')
+            all_tasks = cur.fetchall()
+            cur.execute('SELECT id, username FROM users ORDER BY username ASC')
+            all_users = cur.fetchall()
+
+        statuses = [('open','Open','#fff8e1','#f57f17'), ('in_check','In check','#e3f0ff','#1565c0'), ('klaar','Klaar','#e8f5e9','#388e3c')]
+        by_status = {s[0]: [t for t in all_tasks if t['status'] == s[0]] for s in statuses}
+
+        body = html_header('Events Gov', True, username, user_id)
+        body += '<h2 class="mt-4">&#127937; Events Gov</h2>'
+        body += self._comm_nav('events-gov', user_id)
+
+        # Add form
+        user_opts = '<option value="">-- Niemand --</option>' + ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users)
+        body += f'''<details style="margin-bottom:1rem;">
+            <summary style="cursor:pointer;font-weight:bold;padding:0.5rem 0.75rem;background:#fff;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.1);">+ Governance check toevoegen</summary>
+            <div class="card" style="margin-top:0.35rem;">
+                <form method="POST" action="/comm/events-gov/add" style="display:flex;flex-direction:column;gap:0.5rem;">
+                    <input type="text" name="title" placeholder="Wat moet gecheckt worden? *" class="form-control" required>
+                    <input type="text" name="event_context" placeholder="Event of context (bijv. HAN Goes Green 2026)" class="form-control">
+                    <textarea name="description" class="form-control" rows="2" placeholder="Toelichting / norm"></textarea>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                        <select name="assigned_to" class="form-control" style="flex:1;">{user_opts}</select>
+                        <select name="priority" class="form-control" style="flex:1;">
+                            <option value="hoog">Hoog</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="laag">Laag</option>
+                        </select>
+                        <input type="date" name="due_date" class="form-control" style="flex:1;">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="align-self:flex-start;">Toevoegen</button>
+                </form>
+            </div>
+        </details>'''
+
+        # Kanban columns
+        body += '<div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">'
+        for s_key, s_label, s_bg, s_color in statuses:
+            tasks = by_status[s_key]
+            body += f'<div style="flex:1;min-width:260px;background:{s_bg};border-radius:8px;padding:0.75rem;border-top:4px solid {s_color};">'
+            body += f'<div style="font-weight:bold;color:{s_color};margin-bottom:0.6rem;">{s_label} ({len(tasks)})</div>'
+            if not tasks:
+                body += '<div style="color:#aaa;font-size:0.85rem;font-style:italic;">Leeg</div>'
+            for t in tasks:
+                is_overdue = t['due_date'] and t['due_date'] < today_iso and s_key != 'klaar'
+                date_str = f'<span style="font-size:0.75rem;color:{"#dc3545" if is_overdue else "#888"};">&#128197; {t["due_date"]}</span>' if t['due_date'] else ''
+                prio_colors = {'hoog': '#dc3545', 'medium': '#f57f17', 'laag': '#388e3c'}
+                prio_dot = f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{prio_colors.get(t["priority"],"#aaa")};margin-right:4px;"></span>'
+                ctx = f'<div style="font-size:0.75rem;color:#7b1fa2;margin-bottom:0.2rem;">&#128197; {html.escape(t["event_context"])}</div>' if t['event_context'] else ''
+                desc = f'<div style="font-size:0.78rem;color:#555;margin:0.2rem 0;">{html.escape(t["description"])}</div>' if t['description'] else ''
+                assigned = f'<span style="font-size:0.75rem;color:#1565c0;">&#128100; {html.escape(t["assigned_name"])}</span>' if t['assigned_name'] else '<span style="font-size:0.75rem;color:#aaa;">Niemand</span>'
+                # Status-buttons
+                btn_opts = ''.join(
+                    f'<button formaction="/comm/events-gov/status" name="status" value="{sk}" style="font-size:0.72rem;padding:0.1rem 0.4rem;border:1px solid {sc};background:#fff;color:{sc};border-radius:3px;cursor:pointer;">{sl}</button>'
+                    for sk, sl, _, sc in statuses if sk != s_key
+                )
+                del_btn = f'<button formaction="/comm/events-gov/delete" style="font-size:0.72rem;padding:0.1rem 0.4rem;border:1px solid #dc3545;background:#fff;color:#dc3545;border-radius:3px;cursor:pointer;" onclick="return confirm(\'Verwijderen?\')">&#10005;</button>'
+                body += f'''<div style="background:#fff;border-radius:6px;padding:0.6rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+                    <div style="font-weight:bold;font-size:0.88rem;margin-bottom:0.2rem;">{prio_dot}{html.escape(t["title"])}</div>
+                    {ctx}{desc}
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.4rem;flex-wrap:wrap;gap:0.2rem;">
+                        {assigned} {date_str}
+                    </div>
+                    <form method="POST" style="display:flex;gap:0.25rem;margin-top:0.4rem;flex-wrap:wrap;">
+                        <input type="hidden" name="id" value="{t["id"]}">
+                        {btn_opts} {del_btn}
+                    </form>
+                </div>'''
+            body += '</div>'
+        body += '</div>'
+        body += html_footer()
+        self._send_html(body)
+
     def render_comm_week(self, user_id: int, username: str) -> None:
         """Render a week overview: tasks due in the next 7 days."""
         today      = datetime.date.today()
@@ -5781,6 +5945,12 @@ function bulkAction(action){
             overdue_cnt = sum(1 for t in my_open if t['due_date'] and t['due_date'] < today_iso)
             cur.execute('SELECT * FROM comm_profiles WHERE user_id=?', (profile_id,))
             ext_profile = cur.fetchone()
+            cur.execute('''SELECT eg.id, eg.title, eg.status, eg.due_date, eg.priority, eg.event_context
+                           FROM events_gov_tasks eg
+                           WHERE eg.assigned_to = ? AND eg.status != 'klaar'
+                           ORDER BY CASE eg.priority WHEN 'hoog' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                                    COALESCE(eg.due_date,'9999-12-31') ASC''', (profile_id,))
+            my_gov_tasks = cur.fetchall()
 
         avatar_color = (ext_profile['avatar_color'] if ext_profile and ext_profile['avatar_color'] else '#c2185b')
         role_title   = (ext_profile['role_title'] if ext_profile and ext_profile['role_title'] else '')
@@ -5877,6 +6047,18 @@ function bulkAction(action){
             for t in my_done[:5]:
                 body += f'<div style="padding:0.3rem 0;border-bottom:1px solid #eee;font-size:0.83rem;color:#388e3c;">&#10003; {html.escape(t["title"])}</div>'
             body += '</div>'
+
+        # Events Gov checks
+        if my_gov_tasks:
+            body += '<div class="card" style="border-left:4px solid #7b1fa2;"><div class="section-title">&#127937; Events Gov — mijn checks</div>'
+            s_labels = {'open': ('Open','#f57f17'), 'in_check': ('In check','#1565c0'), 'klaar': ('Klaar','#388e3c')}
+            for t in my_gov_tasks:
+                sl, sc = s_labels.get(t['status'], ('?','#888'))
+                badge = f'<span style="font-size:0.72rem;background:{sc};color:#fff;border-radius:3px;padding:0.1rem 0.3rem;">{sl}</span>'
+                ctx = f' <span style="font-size:0.75rem;color:#7b1fa2;">{html.escape(t["event_context"])}</span>' if t['event_context'] else ''
+                date_str = f' <small style="color:#888;">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
+                body += f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;font-size:0.85rem;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">{badge} <strong>{html.escape(t["title"])}</strong>{ctx}{date_str}</div>'
+            body += f'<div style="margin-top:0.5rem;"><a href="/comm/events-gov" style="font-size:0.82rem;color:#7b1fa2;">→ Naar Events Gov board</a></div></div>'
 
         body += html_footer()
         self._send_html(body)
