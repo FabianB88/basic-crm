@@ -4640,7 +4640,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 <a href="/customers/add" class="btn btn-primary">+ Toevoegen</a>
             </div>
         </div>'''
-        if is_admin(user_id):
+        if is_admin(uid):
             admin_user_opts = '<option value="">-- Kies gebruiker --</option>' + ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users_bulk)
             body += f'''<div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:0.5rem 1rem;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
                 <span style="font-size:0.85rem;color:#555;">&#128279; Koppel lege accountmanagers aan:</span>
