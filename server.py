@@ -422,6 +422,21 @@ def init_db() -> None:
         if not cur.execute("SELECT 1 FROM _migrations WHERE name='clean_open_tasks_2026'").fetchone():
             cur.execute("DELETE FROM tasks WHERE status='open'")
             cur.execute("INSERT INTO _migrations (name) VALUES ('clean_open_tasks_2026')")
+        # One-time migration: koppel Anouk aan alle interne relaties zonder accountmanager
+        if not cur.execute("SELECT 1 FROM _migrations WHERE name='link_anouk_intern_2026'").fetchone():
+            anouk = cur.execute("SELECT id FROM users WHERE lower(username)='anouk' LIMIT 1").fetchone()
+            if anouk:
+                anouk_id = anouk[0]
+                cur.execute('''
+                    INSERT OR IGNORE INTO customer_users (customer_id, user_id)
+                    SELECT c.id, ?
+                    FROM customers c
+                    WHERE c.relation_type = 'intern'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM customer_users cu WHERE cu.customer_id = c.id
+                      )
+                ''', (anouk_id,))
+            cur.execute("INSERT INTO _migrations (name) VALUES ('link_anouk_intern_2026')")
         # Create notes table
         cur.execute('''
             CREATE TABLE IF NOT EXISTS notes (
