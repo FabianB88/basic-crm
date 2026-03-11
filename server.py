@@ -2228,7 +2228,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if filter_uid:
                     conditions.append('t.user_id = ?')
                     args.append(filter_uid)
-                if filter_status in ('open', 'completed'):
+                if filter_status == 'verlopen':
+                    conditions.append("t.status = 'open' AND t.due_date < DATE('now')")
+                elif filter_status in ('open', 'completed'):
                     conditions.append('t.status = ?')
                     args.append(filter_status)
                 where = ' AND '.join(conditions)
@@ -2253,7 +2255,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             for u in all_users:
                 sel = 'selected' if filter_uid == u['id'] else ''
                 user_opts += f'<option value="{u["id"]}" {sel}>{html.escape(u["username"])}</option>'
-            stat_opts = f'<option value="">Alle statussen</option><option value="open" {"selected" if filter_status=="open" else ""}>Open</option><option value="completed" {"selected" if filter_status=="completed" else ""}>Voltooid</option>'
+            stat_opts = f'<option value="">Alle statussen</option><option value="open" {"selected" if filter_status=="open" else ""}>Open</option><option value="verlopen" {"selected" if filter_status=="verlopen" else ""}>Verlopen</option><option value="completed" {"selected" if filter_status=="completed" else ""}>Voltooid</option>'
             body += f'''<div class="card" style="padding:0.75rem 1rem;">
                 <form method="GET" action="/tasks/search" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
                     <div>
@@ -2273,9 +2275,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 </form>
             </div>'''
             if is_admin(user_id):
-                body += '''<div style="margin-top:0.75rem;text-align:right;">
+                body += '''<div style="margin-top:0.75rem;display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap;">
                     <form method="POST" action="/tasks/delete-all-open" onsubmit="return confirm('Alle openstaande taken verwijderen? Dit kan niet ongedaan worden.');">
                         <button type="submit" style="background:#dc3545;color:#fff;border:none;border-radius:4px;padding:0.35rem 1rem;font-size:0.85rem;cursor:pointer;">&#128465; Alle open taken verwijderen</button>
+                    </form>
+                    <form method="POST" action="/tasks/delete-overdue" onsubmit="return confirm('Alle verlopen taken verwijderen? Dit kan niet ongedaan worden.');">
+                        <button type="submit" style="background:#b71c1c;color:#fff;border:none;border-radius:4px;padding:0.35rem 1rem;font-size:0.85rem;cursor:pointer;">&#128465; Verlopen taken verwijderen</button>
                     </form>
                 </div>'''
             body += f'<div class="card"><div class="section-title">Resultaten ({len(results)})</div>'
@@ -2310,6 +2315,15 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             if method == 'POST':
                 with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     conn.execute("DELETE FROM tasks WHERE status='open'")
+                    conn.commit()
+            self.respond_redirect('/tasks/search')
+        elif path == '/tasks/delete-overdue':
+            if not logged_in or not is_admin(user_id):
+                self.respond_redirect('/tasks/search')
+                return
+            if method == 'POST':
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.execute("DELETE FROM tasks WHERE status='open' AND due_date < DATE('now')")
                     conn.commit()
             self.respond_redirect('/tasks/search')
         elif path == '/tasks/export':
