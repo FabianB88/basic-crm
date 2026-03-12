@@ -5001,12 +5001,12 @@ function bulkAction(action){
                             <div class="mb-3" id="field-rol" style="{'display:none' if relation_type != 'intern' else ''}">
                                 <label for="role_select" class="form-label">Rol</label>
                                 <select class="form-select" id="role_select" onchange="toggleRolCustom(this)">
-                                    {''.join(f'<option value="{r}" {"selected" if role_val == r else ""}>{r}</option>' for r in ['Docent','Onderzoeker','Manager','Werknemer','Ondersteuner'])}
-                                    <option value="anders" {'selected' if role_val and role_val not in ["Docent","Onderzoeker","Manager","Werknemer","Ondersteuner"] else ''}>Anders...</option>
+                                    {''.join(f'<option value="{r}" {"selected" if role_val == r else ""}>{r}</option>' for r in ['Docent','Onderzoeker','Manager','Werknemer','Ondersteuner','Partnerdesk','Verbindingspersoon'])}
+                                    <option value="anders" {'selected' if role_val and role_val not in ["Docent","Onderzoeker","Manager","Werknemer","Ondersteuner","Partnerdesk","Verbindingspersoon"] else ''}>Anders...</option>
                                 </select>
                                 <input type="text" class="form-control mt-2" id="role_custom" name="role" placeholder="Vul rol in..."
                                     value="{html.escape(role_val)}"
-                                    style="{'display:none' if not role_val or role_val in ['Docent','Onderzoeker','Manager','Werknemer','Ondersteuner'] else ''}">
+                                    style="{'display:none' if not role_val or role_val in ['Docent','Onderzoeker','Manager','Werknemer','Ondersteuner','Partnerdesk','Verbindingspersoon'] else ''}">
                             </div>
                             <script>
                             function toggleRolType() {{
