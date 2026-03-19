@@ -685,6 +685,11 @@ def init_db() -> None:
             cur.execute('SELECT consent_given FROM governance_persons LIMIT 1')
         except sqlite3.OperationalError:
             cur.execute('ALTER TABLE governance_persons ADD COLUMN consent_given INTEGER DEFAULT 0')
+        # Add verbinding to customers if missing (ambassadeur, betrokken, niet betrokken)
+        try:
+            cur.execute('SELECT verbinding FROM customers LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE customers ADD COLUMN verbinding TEXT")
         # Create governance_notes table if missing
         cur.execute('''
             CREATE TABLE IF NOT EXISTS governance_notes (
@@ -1628,11 +1633,14 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 relation_filter = ''
             sort_col = query_params.get('sort', ['name'])[0].strip()
             sort_dir = query_params.get('dir', ['asc'])[0].strip()
-            if sort_col not in ('name', 'company', 'category', 'relation_type', 'created_at'):
+            if sort_col not in ('name', 'company', 'category', 'relation_type', 'created_at', 'role', 'verbinding'):
                 sort_col = 'name'
             if sort_dir not in ('asc', 'desc'):
                 sort_dir = 'asc'
-            self.render_customers(search, relation_filter, sort_col, sort_dir)
+            verbinding_filter = query_params.get('verbinding', [''])[0].strip()
+            if verbinding_filter not in ('ambassadeur', 'betrokken', 'niet betrokken'):
+                verbinding_filter = ''
+            self.render_customers(search, relation_filter, sort_col, sort_dir, verbinding_filter)
         elif path == '/customers/add':
             if not logged_in:
                 self.respond_redirect('/login')
@@ -1653,6 +1661,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if relation_type not in ('intern', 'extern'):
                     relation_type = 'extern'
                 role = params.get('role', [''])[0].strip() or None
+                verbinding = params.get('verbinding', [''])[0].strip() or None
+                if verbinding not in ('ambassadeur', 'betrokken', 'niet betrokken'):
+                    verbinding = None
                 # Collect dynamic field values.  Dynamic field inputs use the
                 # prefix 'cf_' followed by the field name.  Additionally, the
 
@@ -1691,7 +1702,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     if cur.fetchone():
                         self.render_customer_form(None, error='Er bestaat al een klant met dit e‑mailadres.')
                         return
-                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, relation_type, role, created_by, custom_fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    cur.execute('''INSERT INTO customers (name, email, phone, address, company, tags, category, relation_type, role, verbinding, created_by, custom_fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                                 (name,
                                  email_c,
                                  phone or None,
@@ -1701,6 +1712,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                  category,
                                  relation_type,
                                  role,
+                                 verbinding,
                                  user_id,
                                  custom_fields))
                     cid_new = cur.lastrowid
@@ -1759,6 +1771,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if relation_type not in ('intern', 'extern'):
                     relation_type = 'extern'
                 role = params.get('role', [''])[0].strip() or None
+                verbinding = params.get('verbinding', [''])[0].strip() or None
+                if verbinding not in ('ambassadeur', 'betrokken', 'niet betrokken'):
+                    verbinding = None
                 # Parse dynamic and raw custom fields.  Merge into a dict and
                 # encode as JSON for storage.  Supports JSON or key=value lines
                 # for raw custom_fields textarea.
@@ -1806,6 +1821,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                         category=?,
                                         relation_type=?,
                                         role=?,
+                                        verbinding=?,
                                         custom_fields=?,
                                         updated_at=CURRENT_TIMESTAMP
                                     WHERE id = ?''',
@@ -1818,6 +1834,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                                  category,
                                  relation_type,
                                  role,
+                                 verbinding,
                                  custom_fields,
                                  cid_int))
                     conn.commit()
@@ -4111,6 +4128,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             total_overdue = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM interactions WHERE strftime('%Y-%m', COALESCE(contact_date, created_at)) = ?", (this_month,))
             interactions_this_month = cur.fetchone()[0]
+            cur.execute("SELECT verbinding, COUNT(*) AS cnt FROM customers WHERE verbinding IS NOT NULL GROUP BY verbinding")
+            verbinding_stats = {row['verbinding']: row['cnt'] for row in cur.fetchall()}
             # Per-user stats: open tasks, overdue, interactions this month
             cur.execute('''
                 SELECT u.id, u.username,
@@ -4167,6 +4186,17 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         body += _stat(total_open_tasks, 'Open taken', '#f57f17')
         body += _stat(total_overdue, 'Verlopen taken', '#dc3545' if total_overdue else '#388e3c')
         body += _stat(interactions_this_month, 'Interacties deze maand', '#1565c0')
+        body += '</div>'
+        # Verbinding stats
+        vb_items = [
+            ('ambassadeur', '#2e7d32', '#e8f5e9'),
+            ('betrokken', '#1565c0', '#e3f0ff'),
+            ('niet betrokken', '#888', '#f5f5f5'),
+        ]
+        body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+        for vb_key, vb_color, vb_bg in vb_items:
+            cnt = verbinding_stats.get(vb_key, 0)
+            body += f'<a href="/customers?verbinding={urllib.parse.quote(vb_key)}" style="flex:1;min-width:130px;text-decoration:none;"><div class="card" style="text-align:center;padding:0.75rem;background:{vb_bg};border-left:4px solid {vb_color};"><div style="font-size:1.8rem;font-weight:bold;color:{vb_color};">{cnt}</div><div style="font-size:0.85rem;color:#555;">{vb_key.capitalize()}</div></div></a>'
         body += '</div>'
         # Per-user stats table — collapsible
         body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128200; Statistieken per gebruiker (' + this_month + ')</summary>'
@@ -4655,7 +4685,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
 
-    def render_customers(self, search: str, relation_filter: str = '', sort_col: str = 'name', sort_dir: str = 'asc') -> None:
+    def render_customers(self, search: str, relation_filter: str = '', sort_col: str = 'name', sort_dir: str = 'asc', verbinding_filter: str = '') -> None:
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
@@ -4663,15 +4693,18 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             args: list = []
             if search:
                 like = f'%{search}%'
-                conditions.append('(name LIKE ? OR email LIKE ? OR company LIKE ? OR tags LIKE ?)')
-                args.extend([like, like, like, like])
+                conditions.append('(name LIKE ? OR email LIKE ? OR company LIKE ? OR tags LIKE ? OR role LIKE ? OR verbinding LIKE ?)')
+                args.extend([like, like, like, like, like, like])
             if relation_filter:
                 conditions.append('relation_type = ?')
                 args.append(relation_filter)
+            if verbinding_filter:
+                conditions.append('verbinding = ?')
+                args.append(verbinding_filter)
             where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
-            safe_col = sort_col if sort_col in ('name','company','category','relation_type','created_at') else 'name'
+            safe_col = sort_col if sort_col in ('name','company','category','relation_type','created_at','role','verbinding') else 'name'
             safe_dir = 'ASC' if sort_dir == 'asc' else 'DESC'
-            order_expr = safe_col if safe_col == 'created_at' else f'LOWER({safe_col})'
+            order_expr = safe_col if safe_col == 'created_at' else f'LOWER(COALESCE({safe_col},\'\'))'
             cur.execute(f'SELECT * FROM customers {where} ORDER BY {order_expr} {safe_dir}', args)
             customers = cur.fetchall()
             cur.execute('SELECT id, username FROM users ORDER BY username ASC')
@@ -4692,6 +4725,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             parts = []
             if search: parts.append(f'q={q_enc}')
             if relation_filter: parts.append(f'relatie={relation_filter}')
+            if verbinding_filter: parts.append(f'verbinding={urllib.parse.quote(verbinding_filter)}')
             if extra_params: parts.append(extra_params)
             return '/customers' + ('?' + '&'.join(parts) if parts else '')
         # Filter buttons Intern / Extern
@@ -4699,26 +4733,40 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             active = relation_filter == val
             base_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #c2185b;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
             style = base_style + ('background:#c2185b;color:#fff;font-weight:bold;' if active else 'color:#c2185b;')
-            href = f'/customers?relatie={val}' + (f'&q={q_enc}' if search else '') + (f'&sort={sort_col}&dir={sort_dir}' if sort_col != 'name' or sort_dir != 'asc' else '')
+            extra = (f'&q={q_enc}' if search else '') + (f'&sort={sort_col}&dir={sort_dir}' if sort_col != 'name' or sort_dir != 'asc' else '') + (f'&verbinding={urllib.parse.quote(verbinding_filter)}' if verbinding_filter else '')
+            href = f'/customers?relatie={val}' + extra
             return f'<a href="{href}" style="{style}">{label}</a>'
         alle_active = not relation_filter
         alle_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #c2185b;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
         alle_style += 'background:#c2185b;color:#fff;font-weight:bold;' if alle_active else 'color:#c2185b;'
         alle_href = '/customers' + (f'?q={q_enc}' if search else '')
         filter_btns = f'<a href="{alle_href}" style="{alle_style}">Alle</a>' + _tab('Extern', 'extern') + _tab('Intern', 'intern')
+        # Verbinding filter buttons
+        def _vtab(label, val, color):
+            active = verbinding_filter == val
+            base = 'display:inline-block;padding:0.25rem 0.9rem;border-radius:20px;text-decoration:none;font-size:0.85rem;margin-right:0.3rem;border:2px solid ' + color + ';'
+            style = base + (f'background:{color};color:#fff;font-weight:bold;' if active else f'color:{color};')
+            extra = (f'&q={q_enc}' if search else '') + (f'&relatie={relation_filter}' if relation_filter else '') + (f'&sort={sort_col}&dir={sort_dir}' if sort_col != 'name' or sort_dir != 'asc' else '')
+            href = f'/customers?verbinding={urllib.parse.quote(val)}' + extra
+            return f'<a href="{href}" style="{style}">{label}</a>'
+        vb_reset_extra = (f'?q={q_enc}' if search else '') + (f'{"&" if search else "?"}relatie={relation_filter}' if relation_filter else '')
+        vb_reset = f'<a href="/customers{vb_reset_extra}" style="display:inline-block;padding:0.25rem 0.9rem;border-radius:20px;text-decoration:none;font-size:0.85rem;margin-right:0.3rem;border:2px solid #aaa;{"background:#aaa;color:#fff;font-weight:bold;" if not verbinding_filter else "color:#aaa;"}">Alle</a>'
+        verbinding_btns = vb_reset + _vtab('Ambassadeur', 'ambassadeur', '#2e7d32') + _vtab('Betrokken', 'betrokken', '#1565c0') + _vtab('Niet betrokken', 'niet betrokken', '#888')
         body += f'''
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-top:1rem;margin-bottom:0.75rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-top:1rem;margin-bottom:0.5rem;">
             <div>{filter_btns}</div>
             <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
                 <form method="get" class="d-flex" role="search" style="margin:0;">
                     {'<input type="hidden" name="relatie" value="' + relation_filter + '">' if relation_filter else ''}
+                    {'<input type="hidden" name="verbinding" value="' + verbinding_filter + '">' if verbinding_filter else ''}
                     {'<input type="hidden" name="sort" value="' + sort_col + '"><input type="hidden" name="dir" value="' + sort_dir + '">' if sort_col != 'name' or sort_dir != 'asc' else ''}
                     <input class="form-control me-2" type="search" name="q" placeholder="Zoeken" value="{q_enc}" style="min-width:180px;">
                     <button class="btn btn-outline-success" type="submit">Zoek</button>
                 </form>
                 <a href="/customers/add" class="btn btn-primary">+ Toevoegen</a>
             </div>
-        </div>'''
+        </div>
+        <div style="margin-bottom:0.75rem;">{verbinding_btns}</div>'''
         if is_admin(uid):
             admin_user_opts = '<option value="">-- Kies gebruiker --</option>' + ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users_bulk)
             body += f'''<div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:0.5rem 1rem;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
@@ -4765,8 +4813,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <th style="width:32px;"><input type="checkbox" id="select-all" onclick="toggleAll(this)" title="Alles selecteren"></th>
                     {_th('Naam','name')}
                     {_th('Bedrijf','company')}
-                    <th>Type / Rol</th>
+                    {_th('Type / Rol','role')}
                     {_th('Relatie','relation_type')}
+                    {_th('Verbinding','verbinding')}
                     <th>Tags</th>
                     <th>E‑mail</th>
                     <th>Telefoon</th>
@@ -4790,12 +4839,20 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 rel_label = f'<span style="background:{"#e3f0ff" if rel == "intern" else "#f0f0f0"};color:{rel_color};border-radius:12px;padding:0.15rem 0.6rem;font-size:0.82rem;font-weight:bold;">{rel.capitalize()}</span>'
                 am_names = _am_map.get(cust['id'], [])
                 creator = ', '.join(html.escape(n) for n in am_names) if am_names else '-'
+                vb_val = cust['verbinding'] if 'verbinding' in cust.keys() else None
+                vb_colors = {'ambassadeur': ('#e8f5e9', '#2e7d32'), 'betrokken': ('#e3f0ff', '#1565c0'), 'niet betrokken': ('#f5f5f5', '#888')}
+                if vb_val and vb_val in vb_colors:
+                    vb_bg, vb_fg = vb_colors[vb_val]
+                    vb_badge = f'<span style="background:{vb_bg};color:{vb_fg};border-radius:12px;padding:0.15rem 0.6rem;font-size:0.82rem;font-weight:bold;">{vb_val.capitalize()}</span>'
+                else:
+                    vb_badge = '<span style="color:#aaa;font-size:0.82rem;">—</span>'
                 body += f'''<tr>
                     <td><input type="checkbox" name="selected_ids" value="{cust['id']}" class="row-cb" onchange="updateBulk()"></td>
                     <td><a href="/customers/view?id={cust['id']}">{html.escape(cust['name'])}</a></td>
                     <td>{html.escape(cust['company'] or '-')}</td>
                     <td>{category_display}</td>
                     <td>{rel_label}</td>
+                    <td>{vb_badge}</td>
                     <td>{tags_display}</td>
                     <td>{html.escape(cust['email'])}</td>
                     <td>{html.escape(cust['phone'] or '-')}</td>
@@ -4807,7 +4864,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     </td>
                 </tr>'''
         else:
-            body += '<tr><td colspan="11" class="text-center">Geen klanten gevonden.</td></tr>'
+            body += '<tr><td colspan="12" class="text-center">Geen klanten gevonden.</td></tr>'
         body += '</tbody></table></form>'
         body += '''<div id="bulk-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
     <div style="background:#fff;border-radius:10px;padding:2rem 2.5rem;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.3);min-width:280px;">
@@ -4886,6 +4943,7 @@ function bulkAction(action){
         category = customer['category'] if customer else 'klant'
         relation_type = (customer.get('relation_type') or 'extern') if customer else 'extern'
         role_val = (customer.get('role') or '') if customer else ''
+        verbinding_val = (customer.get('verbinding') or '') if customer else ''
         website = customer.get('website', '') if customer else ''
         industry = customer.get('industry', '') if customer else ''
         company_size = customer.get('company_size', '') if customer else ''
@@ -5007,6 +5065,15 @@ function bulkAction(action){
                                 <input type="text" class="form-control mt-2" id="role_custom" name="role" placeholder="Vul rol in..."
                                     value="{html.escape(role_val)}"
                                     style="{'display:none' if not role_val or role_val in ['Docent','Onderzoeker','Manager','Werknemer','Ondersteuner','Partnerdesk','Verbindingspersoon'] else ''}">
+                            </div>
+                            <div class="mb-3">
+                                <label for="verbinding" class="form-label">Verbinding</label>
+                                <select class="form-select" id="verbinding" name="verbinding">
+                                    <option value="" {'selected' if not verbinding_val else ''}>— Kies —</option>
+                                    <option value="ambassadeur" {'selected' if verbinding_val == 'ambassadeur' else ''}>Ambassadeur</option>
+                                    <option value="betrokken" {'selected' if verbinding_val == 'betrokken' else ''}>Betrokken</option>
+                                    <option value="niet betrokken" {'selected' if verbinding_val == 'niet betrokken' else ''}>Niet betrokken</option>
+                                </select>
                             </div>
                             <script>
                             function toggleRolType() {{
