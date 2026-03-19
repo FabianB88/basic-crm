@@ -1168,6 +1168,7 @@ def check_and_create_reminders() -> None:
 
 def _reminder_loop() -> None:
     """Background thread: run reminder checks once daily."""
+    time.sleep(86400)  # Wacht eerst 24 uur — zo komen herinneringen niet direct terug na herstart
     while True:
         try:
             check_and_create_reminders()
