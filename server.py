@@ -1027,6 +1027,13 @@ def init_db() -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
         ''')
+        # Add reminder_paused_until to customer_users if missing.
+        # When a reminder task is deleted, this is set to the reminder due date
+        # so check_and_create_reminders() won't recreate it before that date.
+        try:
+            cur.execute('SELECT reminder_paused_until FROM customer_users LIMIT 1')
+        except sqlite3.OperationalError:
+            cur.execute('ALTER TABLE customer_users ADD COLUMN reminder_paused_until DATE')
 
         conn.commit()
 
@@ -1087,7 +1094,8 @@ def check_and_create_reminders() -> None:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute('''
-            SELECT cu.customer_id, cu.user_id, c.name AS customer_name,
+            SELECT cu.customer_id, cu.user_id, cu.reminder_paused_until,
+                   c.name AS customer_name,
                    COALESCE(c.relation_type, 'extern') AS relation_type
             FROM customer_users cu
             JOIN customers c ON cu.customer_id = c.id
@@ -1097,6 +1105,10 @@ def check_and_create_reminders() -> None:
             cid = link['customer_id']
             uid = link['user_id']
             customer_name = link['customer_name']
+            # Skip if reminder was manually dismissed until a future date
+            paused_until = link['reminder_paused_until'] if 'reminder_paused_until' in link.keys() else None
+            if paused_until and paused_until >= datetime.date.today().isoformat():
+                continue
             # Look up the accountmanager's username for display in the task
             cur.execute('SELECT username FROM users WHERE id = ?', (uid,))
             user_row = cur.fetchone()
@@ -2200,6 +2212,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             with sqlite3.connect(DB_PATH, timeout=10) as conn:
                 cur = conn.cursor()
+                # If this is a reminder task, pause it until its due date
+                cur.execute("SELECT customer_id, user_id, due_date, title FROM tasks WHERE id=?", (tid_int,))
+                t_row = cur.fetchone()
+                if t_row and t_row[3] and t_row[3].startswith('Herinnering:'):
+                    paused = t_row[2] if t_row[2] else '9999-12-31'
+                    cur.execute("UPDATE customer_users SET reminder_paused_until=? WHERE customer_id=? AND user_id=?",
+                                (paused, t_row[0], t_row[1]))
                 cur.execute('DELETE FROM tasks WHERE id = ?', (tid_int,))
                 conn.commit()
             # Log deletion
@@ -2387,6 +2406,18 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if method == 'POST':
                 with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    # Pause reminders for all deleted reminder tasks until their due date
+                    cur.execute("""
+                        SELECT customer_id, user_id, due_date FROM tasks
+                        WHERE status='open' AND title LIKE 'Herinnering:%'
+                    """)
+                    for row in cur.fetchall():
+                        paused = row[2] if row[2] else '9999-12-31'
+                        cur.execute("""
+                            UPDATE customer_users SET reminder_paused_until=?
+                            WHERE customer_id=? AND user_id=?
+                        """, (paused, row[0], row[1]))
                     conn.execute("DELETE FROM tasks WHERE status='open'")
                     conn.commit()
             self.respond_redirect('/tasks/search')
@@ -2396,6 +2427,18 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             if method == 'POST':
                 with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    # Pause reminders for deleted overdue reminder tasks
+                    cur.execute("""
+                        SELECT customer_id, user_id, due_date FROM tasks
+                        WHERE status='open' AND due_date < DATE('now') AND title LIKE 'Herinnering:%'
+                    """)
+                    for row in cur.fetchall():
+                        paused = row[2] if row[2] else '9999-12-31'
+                        cur.execute("""
+                            UPDATE customer_users SET reminder_paused_until=?
+                            WHERE customer_id=? AND user_id=?
+                        """, (paused, row[0], row[1]))
                     conn.execute("DELETE FROM tasks WHERE status='open' AND due_date < DATE('now')")
                     conn.commit()
             self.respond_redirect('/tasks/search')
