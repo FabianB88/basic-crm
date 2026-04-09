@@ -1322,10 +1322,67 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
             <input type="search" name="q" placeholder="&#128269; Klant zoeken..." style="padding:0.25rem 0.6rem;border:none;border-radius:4px 0 0 4px;font-size:0.85rem;width:160px;outline:none;">
             <button type="submit" style="padding:0.25rem 0.6rem;background:#a3154e;color:#fff;border:none;border-radius:0 4px 4px 0;cursor:pointer;font-size:0.85rem;">&#10132;</button>
         </form>'''
+        popup_html = '''<div id="msg-popup" style="display:none;position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.2);padding:1rem 1.2rem;min-width:280px;max-width:360px;border-left:4px solid #c2185b;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
+    <strong style="color:#c2185b;">&#128172; Nieuw bericht van <span id="msg-popup-from"></span></strong>
+    <button onclick="closeMsgPopup()" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:#aaa;">&#10005;</button>
+  </div>
+  <div id="msg-popup-text" style="font-size:0.9rem;color:#333;margin-bottom:0.6rem;"></div>
+  <a id="msg-popup-link" href="/messages" style="background:#c2185b;color:#fff;border-radius:4px;padding:0.25rem 0.8rem;text-decoration:none;font-size:0.85rem;">Bekijken</a>
+</div>'''
     else:
         nav_links_left = ''
         nav_links_right = "<a href='/login'>Inloggen</a>"
         nav_search = ''
+        popup_html = ''
+    polling_js = '''<script>
+(function() {
+    var lastUnread = -1;
+    function pollMessages() {
+        fetch('/messages/poll')
+            .then(function(r){return r.json();})
+            .then(function(data){
+                var badge = document.getElementById('msg-badge');
+                if (badge) {
+                    if (data.unread > 0) { badge.textContent = data.unread; badge.style.display = 'inline-block'; }
+                    else { badge.style.display = 'none'; }
+                }
+                if (lastUnread >= 0 && data.unread > lastUnread && data.latest) { showMsgPopup(data.latest); }
+                lastUnread = data.unread;
+            }).catch(function(){});
+    }
+    function playMsgSound() {
+        try {
+            var ctx = new (window.AudioContext || window.webkitAudioContext)();
+            var o = ctx.createOscillator();
+            var g = ctx.createGain();
+            o.connect(g); g.connect(ctx.destination);
+            o.type = 'sine'; o.frequency.value = 880;
+            g.gain.setValueAtTime(0.3, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+            o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.4);
+        } catch(e) {}
+    }
+    function showMsgPopup(msg) {
+        var popup = document.getElementById('msg-popup');
+        if (!popup) return;
+        document.getElementById('msg-popup-from').textContent = msg.from;
+        document.getElementById('msg-popup-text').textContent = msg.content.length > 100 ? msg.content.substring(0,100)+'...' : msg.content;
+        document.getElementById('msg-popup-link').href = '/messages/conversation?with=' + msg.sender_id;
+        popup.style.display = 'block';
+        playMsgSound();
+        clearTimeout(window._msgPopupTimer);
+        window._msgPopupTimer = setTimeout(function(){ popup.style.display='none'; }, 8000);
+    }
+    window.closeMsgPopup = function() {
+        var p = document.getElementById('msg-popup');
+        if (p) p.style.display = 'none';
+        clearTimeout(window._msgPopupTimer);
+    };
+    pollMessages();
+    setInterval(pollMessages, 5000);
+})();
+</script>''' if logged_in and user_id else ''
     return f'''<!doctype html>
 <html lang="nl">
 <head>
@@ -1353,6 +1410,8 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     </script>
 </head>
 <body>
+{popup_html}
+{polling_js}
 <nav class="navbar">
     <a href="/">CRM</a>
     <div class="spacer"></div>
@@ -1631,6 +1690,59 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 'session_id=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax'
             )
             self.end_headers()
+        elif path == '/messages/poll':
+            if not logged_in:
+                self._send_json({'unread': 0, 'latest': None})
+                return
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute('SELECT COUNT(*) FROM messages WHERE recipient_id=? AND is_read=0', (user_id,))
+                unread = cur.fetchone()[0]
+                cur.execute('''SELECT m.sender_id, m.content, u.username AS from_user
+                               FROM messages m JOIN users u ON m.sender_id=u.id
+                               WHERE m.recipient_id=? AND m.is_read=0
+                               ORDER BY m.created_at DESC LIMIT 1''', (user_id,))
+                row = cur.fetchone()
+                latest = {'sender_id': row['sender_id'], 'from': row['from_user'], 'content': row['content']} if row else None
+            self._send_json({'unread': unread, 'latest': latest})
+        elif path == '/messages':
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            self.render_conversations(user_id, username)
+        elif path == '/messages/conversation':
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            other_id_str = query_params.get('with', [None])[0]
+            if not other_id_str:
+                self.respond_redirect('/messages')
+                return
+            try:
+                other_id = int(other_id_str)
+            except ValueError:
+                self.respond_redirect('/messages')
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                content = params.get('content', [''])[0].strip()
+                reply_to_str = params.get('reply_to', [''])[0].strip()
+                reply_to = int(reply_to_str) if reply_to_str.isdigit() else None
+                if content:
+                    with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                        conn.execute('INSERT INTO messages (sender_id, recipient_id, content, reply_to) VALUES (?,?,?,?)',
+                                     (user_id, other_id, content, reply_to))
+                        conn.commit()
+                self.respond_redirect(f'/messages/conversation?with={other_id}')
+            else:
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    conn.execute('UPDATE messages SET is_read=1 WHERE sender_id=? AND recipient_id=? AND is_read=0',
+                                 (other_id, user_id))
+                    conn.commit()
+                self.render_conversation(user_id, username, other_id)
         elif path == '/dashboard':
             if not logged_in:
                 self.respond_redirect('/login')
@@ -4158,6 +4270,143 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
 
+    def _send_json(self, data: dict) -> None:
+        import json
+        body = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def render_conversations(self, user_id: int, username: str) -> None:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('''
+                SELECT other_id, u.username AS other_name,
+                       MAX(m.created_at) AS last_at,
+                       SUM(CASE WHEN m.recipient_id=? AND m.is_read=0 THEN 1 ELSE 0 END) AS unread,
+                       (SELECT content FROM messages m2
+                        WHERE (m2.sender_id=m.other_id AND m2.recipient_id=?)
+                           OR (m2.sender_id=? AND m2.recipient_id=m.other_id)
+                        ORDER BY m2.created_at DESC LIMIT 1) AS last_content
+                FROM (
+                    SELECT CASE WHEN sender_id=? THEN recipient_id ELSE sender_id END AS other_id,
+                           id, created_at, recipient_id, is_read
+                    FROM messages WHERE sender_id=? OR recipient_id=?
+                ) m
+                JOIN users u ON u.id = m.other_id
+                GROUP BY other_id
+                ORDER BY last_at DESC
+            ''', (user_id, user_id, user_id, user_id, user_id, user_id))
+            convs = cur.fetchall()
+            cur.execute('SELECT id, username FROM users WHERE id != ? ORDER BY username', (user_id,))
+            all_users = cur.fetchall()
+        body = html_header('Berichten', True, username, user_id)
+        body += '<h2 class="mt-4">&#128172; Berichten</h2>'
+        user_opts = ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users)
+        body += f'''<div style="margin-bottom:1rem;">
+            <form method="GET" action="/messages/conversation" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                <select name="with" class="form-control" style="max-width:220px;" required>
+                    <option value="">— Nieuw gesprek met... —</option>
+                    {user_opts}
+                </select>
+                <button type="submit" class="btn btn-primary">&#43; Start gesprek</button>
+            </form>
+        </div>'''
+        if convs:
+            body += '<div class="card" style="padding:0;">'
+            for c in convs:
+                unread = c['unread'] or 0
+                snippet = html.escape((c['last_content'] or '')[:80])
+                badge = f'<span style="background:#c2185b;color:#fff;border-radius:50%;font-size:0.75rem;font-weight:bold;min-width:20px;height:20px;line-height:20px;text-align:center;display:inline-block;margin-left:0.4rem;">{unread}</span>' if unread else ''
+                row_bg = 'background:#fce4ec;' if unread else ''
+                body += f'''<a href="/messages/conversation?with={c["other_id"]}" style="display:flex;align-items:center;padding:0.85rem 1.1rem;border-bottom:1px solid #eee;text-decoration:none;color:inherit;{row_bg}">
+                    <div style="width:38px;height:38px;border-radius:50%;background:#c2185b;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:1rem;margin-right:0.85rem;flex-shrink:0;">{html.escape(c["other_name"][0].upper())}</div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:{"bold" if unread else "normal"};">{html.escape(c["other_name"])}{badge}</div>
+                        <div style="font-size:0.85rem;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{snippet}</div>
+                    </div>
+                    <div style="font-size:0.78rem;color:#aaa;flex-shrink:0;margin-left:0.5rem;">{(c["last_at"] or "")[:16]}</div>
+                </a>'''
+            body += '</div>'
+        else:
+            body += '<p style="color:#888;">Nog geen berichten. Start een gesprek hierboven.</p>'
+        body += html_footer()
+        self._send_html(body)
+
+    def render_conversation(self, user_id: int, username: str, other_id: int) -> None:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute('SELECT id, username FROM users WHERE id=?', (other_id,))
+            other = cur.fetchone()
+            if not other:
+                self.respond_redirect('/messages')
+                return
+            cur.execute('''
+                SELECT m.*, u.username AS sender_name,
+                       r.content AS reply_content, ru.username AS reply_from
+                FROM messages m
+                JOIN users u ON m.sender_id = u.id
+                LEFT JOIN messages r ON m.reply_to = r.id
+                LEFT JOIN users ru ON r.sender_id = ru.id
+                WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
+                ORDER BY m.created_at ASC
+            ''', (user_id, other_id, other_id, user_id))
+            msgs = cur.fetchall()
+        other_name = other['username']
+        body = html_header(f'Gesprek met {other_name}', True, username, user_id)
+        body += f'<div style="display:flex;align-items:center;gap:0.75rem;margin-top:1.5rem;margin-bottom:1rem;"><a href="/messages" style="color:#c2185b;">&#8592; Terug</a><h2 style="margin:0;">&#128172; {html.escape(other_name)}</h2></div>'
+        body += '<div id="chat-box" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.2rem;max-height:65vh;overflow-y:auto;padding:0.5rem;">'
+        for m in msgs:
+            is_me = m['sender_id'] == user_id
+            align = 'flex-end' if is_me else 'flex-start'
+            bg = '#c2185b' if is_me else '#f0f0f0'
+            fg = '#fff' if is_me else '#333'
+            reply_html = ''
+            if m['reply_content']:
+                border_col = 'rgba(255,255,255,0.5)' if is_me else '#c2185b'
+                reply_html = f'<div style="font-size:0.78rem;border-left:3px solid {border_col};padding-left:0.4rem;margin-bottom:0.3rem;opacity:0.85;">{html.escape(m["reply_from"] or "")}: {html.escape((m["reply_content"] or "")[:60])}</div>'
+            safe_sender = html.escape(m["sender_name"]).replace("'", "&#39;")
+            safe_content = html.escape((m["content"] or "")[:60]).replace("'", "&#39;")
+            body += f'''<div style="display:flex;flex-direction:column;align-items:{align};">
+                <div style="background:{bg};color:{fg};border-radius:12px;padding:0.55rem 0.85rem;max-width:70%;word-break:break-word;">
+                    {reply_html}{html.escape(m["content"])}
+                </div>
+                <div style="font-size:0.75rem;color:#aaa;margin-top:0.15rem;display:flex;gap:0.5rem;align-items:center;">
+                    {(m["created_at"] or "")[:16]}
+                    <a href="#" onclick="setReply({m["id"]},'{safe_sender}','{safe_content}');return false;" style="color:#c2185b;font-size:0.75rem;">&#8617; Reply</a>
+                </div>
+            </div>'''
+        body += '</div>'
+        body += f'''<div id="reply-preview" style="display:none;background:#fce4ec;border-left:4px solid #c2185b;padding:0.4rem 0.8rem;border-radius:4px;margin-bottom:0.5rem;font-size:0.85rem;">
+            <span id="reply-preview-text" style="flex:1;"></span>
+            <button onclick="clearReply()" style="float:right;background:none;border:none;cursor:pointer;color:#c2185b;font-size:1rem;">&#10005;</button>
+        </div>
+        <form method="POST" action="/messages/conversation?with={other_id}" style="display:flex;gap:0.5rem;align-items:flex-end;">
+            <input type="hidden" name="reply_to" id="reply-to-input" value="">
+            <textarea name="content" class="form-control" rows="2" placeholder="Schrijf een bericht..." required style="flex:1;resize:none;" id="msg-input" onkeydown="if(event.key==='Enter'&&!event.shiftKey){{event.preventDefault();this.form.submit();}}"></textarea>
+            <button type="submit" class="btn btn-primary">Verstuur</button>
+        </form>
+        <script>
+        function setReply(id, from, text) {{
+            document.getElementById('reply-to-input').value = id;
+            document.getElementById('reply-preview-text').textContent = from + ': ' + text;
+            document.getElementById('reply-preview').style.display = 'block';
+            document.getElementById('msg-input').focus();
+        }}
+        function clearReply() {{
+            document.getElementById('reply-to-input').value = '';
+            document.getElementById('reply-preview').style.display = 'none';
+        }}
+        var cb = document.getElementById('chat-box');
+        if (cb) cb.scrollTop = cb.scrollHeight;
+        </script>'''
+        body += html_footer()
+        self._send_html(body)
+
     def render_dashboard(self, user_id: int, username: str) -> None:
         # Count customers, get recent notes and tasks due soon
         this_month = datetime.date.today().strftime('%Y-%m')
@@ -4495,6 +4744,26 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 ORDER BY created_at DESC
             ''', (pid,))
             added_customers = cur.fetchall()
+            # Recent conversations for messaging section (only show when viewing own profile)
+            cur.execute('''
+                SELECT other_id, u.username AS other_name,
+                       MAX(m.created_at) AS last_at,
+                       SUM(CASE WHEN m.recipient_id=? AND m.is_read=0 THEN 1 ELSE 0 END) AS unread,
+                       (SELECT content FROM messages m2
+                        WHERE (m2.sender_id=m.other_id AND m2.recipient_id=?)
+                           OR (m2.sender_id=? AND m2.recipient_id=m.other_id)
+                        ORDER BY m2.created_at DESC LIMIT 1) AS last_content
+                FROM (
+                    SELECT CASE WHEN sender_id=? THEN recipient_id ELSE sender_id END AS other_id,
+                           id, created_at, recipient_id, is_read
+                    FROM messages WHERE sender_id=? OR recipient_id=?
+                ) m
+                JOIN users u ON u.id = m.other_id
+                GROUP BY other_id ORDER BY last_at DESC LIMIT 10
+            ''', (pid, pid, pid, pid, pid, pid))
+            msg_convs = cur.fetchall()
+            cur.execute("SELECT COUNT(*) FROM messages WHERE recipient_id=? AND is_read=0", (pid,))
+            msg_unread_total = cur.fetchone()[0]
         body = html_header(f'Profiel: {profile_user["username"]}', True, viewer_username, viewer_id)
         body += f'<h2 class="mt-4">&#128100; {html.escape(profile_user["username"])}</h2>'
         body += f'<p style="color:#666;">{html.escape(profile_user["email"])} &middot; Account aangemaakt op {profile_user["created_at"][:10]}</p>'
@@ -4602,6 +4871,41 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <a href="/customers/view?id={t['customer_id']}" style="color:#aaa;">{html.escape(t['customer_name'])}</a>
                 </div>'''
             body += '</div></details>'
+        # Berichten sectie (alleen op eigen profiel)
+        if viewer_id == pid:
+            unread_badge = f' <span style="background:#c2185b;color:#fff;border-radius:50%;font-size:0.75rem;font-weight:bold;min-width:20px;height:20px;line-height:20px;text-align:center;display:inline-block;margin-left:0.3rem;">{msg_unread_total}</span>' if msg_unread_total else ''
+            body += f'<div class="card"><div class="section-title">&#128172; Berichten{unread_badge} <a href="/messages" style="float:right;font-size:0.85rem;font-weight:normal;color:#c2185b;">Alle gesprekken</a></div>'
+            if msg_convs:
+                for c in msg_convs:
+                    unread = c['unread'] or 0
+                    snippet = html.escape((c['last_content'] or '')[:60])
+                    row_bg = 'background:#fce4ec;' if unread else ''
+                    badge = f'<span style="background:#c2185b;color:#fff;border-radius:50%;font-size:0.72rem;font-weight:bold;min-width:18px;height:18px;line-height:18px;text-align:center;display:inline-block;margin-left:0.3rem;">{unread}</span>' if unread else ''
+                    body += f'''<a href="/messages/conversation?with={c["other_id"]}" style="display:flex;align-items:center;padding:0.6rem 0;border-bottom:1px solid #eee;text-decoration:none;color:inherit;{row_bg}">
+                        <div style="width:32px;height:32px;border-radius:50%;background:#c2185b;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:0.9rem;margin-right:0.7rem;flex-shrink:0;">{html.escape(c["other_name"][0].upper())}</div>
+                        <div style="flex:1;min-width:0;">
+                            <span style="font-weight:{"bold" if unread else "normal"};">{html.escape(c["other_name"])}</span>{badge}
+                            <div style="font-size:0.82rem;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{snippet}</div>
+                        </div>
+                        <div style="font-size:0.75rem;color:#aaa;margin-left:0.5rem;">{(c["last_at"] or "")[:16]}</div>
+                    </a>'''
+            else:
+                body += '<p style="color:#888;">Nog geen berichten.</p>'
+            # Nieuw gesprek starten
+            with sqlite3.connect(DB_PATH, timeout=10) as _conn:
+                _conn.row_factory = sqlite3.Row
+                _cur = _conn.cursor()
+                _cur.execute('SELECT id, username FROM users WHERE id != ? ORDER BY username', (pid,))
+                _all_users = _cur.fetchall()
+            user_opts = ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in _all_users)
+            body += f'''<form method="GET" action="/messages/conversation" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-top:0.75rem;">
+                <select name="with" class="form-control" style="max-width:200px;" required>
+                    <option value="">— Nieuw gesprek... —</option>
+                    {user_opts}
+                </select>
+                <button type="submit" class="btn btn-primary btn-sm">&#43; Start</button>
+            </form>'''
+            body += '</div>'
         body += html_footer()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
