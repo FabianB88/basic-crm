@@ -3008,7 +3008,11 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             if not logged_in or not is_comm_member(user_id):
                 self.respond_redirect('/dashboard')
                 return
-            self.render_comm_board(user_id, username)
+            try:
+                user_filter = int(query_params.get('user_filter', [0])[0])
+            except (ValueError, TypeError):
+                user_filter = 0
+            self.render_comm_board(user_id, username, user_filter)
         elif path == '/comm/goals':
             if not logged_in or not is_comm_member(user_id):
                 self.respond_redirect('/dashboard')
@@ -5804,7 +5808,7 @@ function bulkAction(action){
         self.end_headers()
         self.wfile.write(body.encode('utf-8'))
 
-    def render_comm_board(self, user_id: int, username: str) -> None:
+    def render_comm_board(self, user_id: int, username: str, user_filter: int = 0) -> None:
         """Render the communication team kanban board with stats."""
         today_iso = datetime.date.today().isoformat()
         week_end = (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
@@ -5849,16 +5853,33 @@ function bulkAction(action){
                            ORDER BY COALESCE(cc.publish_date,'9999-12-31') ASC''')
             board_content = cur.fetchall()
 
-        backlog = [t for t in all_tasks if t['status'] == 'backlog']
-        bezig   = [t for t in all_tasks if t['status'] == 'bezig']
-        klaar   = [t for t in all_tasks if t['status'] == 'klaar']
-        board_content_backlog = [c for c in board_content if c['board_status'] == 'backlog']
-        board_content_bezig   = [c for c in board_content if c['board_status'] == 'bezig']
-        board_content_klaar   = [c for c in board_content if c['board_status'] == 'klaar']
+        def _task_matches_filter(t):
+            if not user_filter:
+                return True
+            return t['assigned_to'] == user_filter
+
+        backlog = [t for t in all_tasks if t['status'] == 'backlog' and _task_matches_filter(t)]
+        bezig   = [t for t in all_tasks if t['status'] == 'bezig'   and _task_matches_filter(t)]
+        klaar   = [t for t in all_tasks if t['status'] == 'klaar'   and _task_matches_filter(t)]
+        board_content_backlog = [c for c in board_content if c['board_status'] == 'backlog' and (not user_filter or c.get('assigned_to') == user_filter)]
+        board_content_bezig   = [c for c in board_content if c['board_status'] == 'bezig'   and (not user_filter or c.get('assigned_to') == user_filter)]
+        board_content_klaar   = [c for c in board_content if c['board_status'] == 'klaar'   and (not user_filter or c.get('assigned_to') == user_filter)]
 
         body = html_header('Communicatie Board', True, username, user_id)
         body += '<h2 class="mt-4">&#128101; Communicatie Dashboard</h2>'
         body += self._comm_nav('board', user_id)
+
+        # User filter pills
+        body += '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.75rem;align-items:center;">'
+        body += '<span style="font-size:0.82rem;color:#888;margin-right:0.2rem;">Filter:</span>'
+        all_pill_style = 'background:#1565c0;color:#fff;' if not user_filter else 'background:#e0e0e0;color:#444;'
+        body += f'<a href="/comm/board" style="text-decoration:none;border-radius:14px;padding:0.25rem 0.75rem;font-size:0.82rem;font-weight:bold;{all_pill_style}">Iedereen</a>'
+        for m in comm_members:
+            active = user_filter == m['id']
+            pill_style = 'background:#c2185b;color:#fff;' if active else 'background:#fce4ec;color:#880e4f;'
+            href = '/comm/board' if active else f'/comm/board?user_filter={m["id"]}'
+            body += f'<a href="{href}" style="text-decoration:none;border-radius:14px;padding:0.25rem 0.75rem;font-size:0.82rem;{pill_style}">&#128100; {html.escape(m["username"])}</a>'
+        body += '</div>'
 
         # Reminder banner: overdue + due today + due within 48h
         deadline_48h = (datetime.date.today() + datetime.timedelta(hours=48)).isoformat()
