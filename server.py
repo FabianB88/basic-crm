@@ -575,7 +575,7 @@ def init_db() -> None:
                 role_title TEXT,
                 bio TEXT,
                 skills TEXT,
-                avatar_color TEXT DEFAULT '#c2185b',
+                avatar_color TEXT DEFAULT '#5C7A5A',
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
@@ -1246,33 +1246,37 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     # generous padding.  Without Bootstrap, we need to style table
     # elements manually to improve readability.
     styles = '''
-    body { margin: 0; font-family: Arial, sans-serif; background-color: #f8f9fa; padding-top: 56px; }
-    .navbar { background-color: #c2185b; color: #fff; position: fixed; top: 0; width: 100%; height: 56px; display: flex; align-items: center; padding: 0 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 1000; }
-    .navbar a { color: #fff; text-decoration: none; margin-right: 1rem; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, Arial, sans-serif; background-color: #F7F4F0; color: #1C1713; padding-top: 56px; font-size: 0.9rem; }
+    .navbar { background-color: #5C7A5A; color: #fff; position: fixed; top: 0; width: 100%; height: 56px; display: flex; align-items: center; padding: 0 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.12); z-index: 1000; }
+    .navbar a { color: rgba(255,255,255,0.9); text-decoration: none; margin-right: 1rem; font-weight: 500; font-size: 0.875rem; }
+    .navbar a:hover { color: #fff; }
     .navbar .spacer { flex-grow: 1; }
-    .container { max-width: 960px; margin: 0 auto; padding: 1rem; }
-    .card { background-color: #ffffff; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .section-title { font-size: 1.2rem; font-weight: bold; margin-bottom: 0.5rem; }
-    .action-buttons a { display: inline-block; border: 2px solid #c2185b; border-radius: 24px; padding: 0.3rem 0.8rem; color: #c2185b; text-decoration: none; margin-right: 0.5rem; font-size: 0.9rem; }
-    .action-buttons a:hover { background-color: #c2185b; color: #fff; }
+    .container { max-width: 980px; margin: 0 auto; padding: 1.25rem 1rem; }
+    .card { background-color: #fff; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid #E4DDD6; }
+    .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: #1C1713; }
+    .action-buttons a { display: inline-block; border: 1.5px solid #5C7A5A; border-radius: 20px; padding: 0.3rem 0.85rem; color: #5C7A5A; text-decoration: none; margin-right: 0.5rem; font-size: 0.85rem; font-weight: 500; }
+    .action-buttons a:hover { background-color: #5C7A5A; color: #fff; }
     .icon { margin-right: 0.5rem; }
-    /* Table styling: ensure full-width tables with consistent padding. */
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-    th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid #dee2e6; }
-    th { background-color: #f2f2f2; font-weight: bold; }
-    tr:nth-child(even) td { background-color: #f9f9f9; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
+    th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid #E4DDD6; }
+    th { background-color: #F7F4F0; font-weight: 600; color: #7A6E66; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    tr:hover td { background-color: #faf8f5; }
     .text-end { text-align: right; }
-    .btn { display: inline-block; padding: 0.3rem 0.75rem; border: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer; text-decoration: none; }
-    .btn-primary { background-color: #c2185b; color: #fff; }
-    .btn-secondary { background-color: #6c757d; color: #fff; }
-    .btn-danger { background-color: #dc3545; color: #fff; }
+    .btn { display: inline-block; padding: 0.35rem 0.85rem; border: none; border-radius: 7px; font-size: 0.875rem; font-weight: 500; cursor: pointer; text-decoration: none; font-family: inherit; }
+    .btn-primary { background-color: #5C7A5A; color: #fff; }
+    .btn-secondary { background-color: #7A6E66; color: #fff; }
+    .btn-danger { background-color: #C0392B; color: #fff; }
     .btn-sm { font-size: 0.8rem; padding: 0.2rem 0.6rem; }
-    .form-control { padding: 0.4rem 0.6rem; border: 1px solid #ced4da; border-radius: 4px; width: 100%; }
-    .btn-outline-success { border: 2px solid #198754; color: #198754; background: transparent; border-radius: 4px; padding: 0.3rem 0.7rem; }
+    .form-control { padding: 0.45rem 0.7rem; border: 1px solid #E4DDD6; border-radius: 7px; width: 100%; font-family: inherit; font-size: 0.9rem; background: #fff; color: #1C1713; outline: none; }
+    .form-control:focus { border-color: #5C7A5A; box-shadow: 0 0 0 3px rgba(92,122,90,0.12); }
+    .btn-outline-success { border: 1.5px solid #198754; color: #198754; background: transparent; border-radius: 7px; padding: 0.3rem 0.7rem; }
     .btn-outline-success:hover { background-color: #198754; color: #fff; }
     .d-flex { display: flex; }
     .me-2 { margin-right: 0.5rem; }
-    .text-end { text-align: right; }
+    a { color: #5C7A5A; }
+    a:hover { color: #4a6348; }
     '''
     # Determine navigation links based on login state.  We omit the
     # registration link unless there are no users yet; see users_exist() below.
@@ -1320,15 +1324,15 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
         nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/account/password'>&#128273; Wachtwoord</a> <a href='/logout'>Uitloggen</a>"
         nav_search = '''<form method="get" action="/customers" style="display:flex;align-items:center;margin:0 1rem;">
             <input type="search" name="q" placeholder="&#128269; Klant zoeken..." style="padding:0.25rem 0.6rem;border:none;border-radius:4px 0 0 4px;font-size:0.85rem;width:160px;outline:none;">
-            <button type="submit" style="padding:0.25rem 0.6rem;background:#a3154e;color:#fff;border:none;border-radius:0 4px 4px 0;cursor:pointer;font-size:0.85rem;">&#10132;</button>
+            <button type="submit" style="padding:0.25rem 0.6rem;background:#4a6348;color:#fff;border:none;border-radius:0 4px 4px 0;cursor:pointer;font-size:0.85rem;">&#10132;</button>
         </form>'''
-        popup_html = '''<div id="msg-popup" style="display:none;position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.2);padding:1rem 1.2rem;min-width:280px;max-width:360px;border-left:4px solid #c2185b;">
+        popup_html = '''<div id="msg-popup" style="display:none;position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.2);padding:1rem 1.2rem;min-width:280px;max-width:360px;border-left:4px solid #5C7A5A;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
-    <strong style="color:#c2185b;">&#128172; Nieuw bericht van <span id="msg-popup-from"></span></strong>
+    <strong style="color:#5C7A5A;">&#128172; Nieuw bericht van <span id="msg-popup-from"></span></strong>
     <button onclick="closeMsgPopup()" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:#aaa;">&#10005;</button>
   </div>
   <div id="msg-popup-text" style="font-size:0.9rem;color:#333;margin-bottom:0.6rem;"></div>
-  <a id="msg-popup-link" href="/messages" style="background:#c2185b;color:#fff;border-radius:4px;padding:0.25rem 0.8rem;text-decoration:none;font-size:0.85rem;">Bekijken</a>
+  <a id="msg-popup-link" href="/messages" style="background:#5C7A5A;color:#fff;border-radius:4px;padding:0.25rem 0.8rem;text-decoration:none;font-size:0.85rem;">Bekijken</a>
 </div>'''
     else:
         nav_links_left = ''
@@ -2475,7 +2479,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         <select name="status" style="padding:0.35rem 0.5rem;border:1px solid #ced4da;border-radius:4px;">{stat_opts}</select>
                     </div>
                     <button type="submit" class="btn btn-primary">Zoeken</button>
-                    <a href="/tasks/search" style="color:#c2185b;font-size:0.9rem;padding:0.4rem 0;">Wis filter</a>
+                    <a href="/tasks/search" style="color:#5C7A5A;font-size:0.9rem;padding:0.4rem 0;">Wis filter</a>
                 </form>
             </div>'''
             if is_admin(user_id):
@@ -2498,7 +2502,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     resolve_btn = f' <a href="/tasks/resolve?id={t["task_id"]}&from=tasks/search" style="background:#198754;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.75rem;text-decoration:none;">&#10003;</a>' if t['status'] == 'open' else ''
                     body += f'''<tr>
                         <td>{html.escape(t["title"])}{desc}{resolve_btn}</td>
-                        <td><a href="/customers/view?id={t["customer_id"]}" style="color:#c2185b;">{html.escape(t["customer_name"])}</a></td>
+                        <td><a href="/customers/view?id={t["customer_id"]}" style="color:#5C7A5A;">{html.escape(t["customer_name"])}</a></td>
                         <td>{html.escape(t["assigned_to"])}</td>
                         <td style="color:{date_color};">{t["due_date"] or "-"}</td>
                         <td>{status_badge}</td>
@@ -2639,17 +2643,17 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                             {user_opts}
                         </select>
                     </label>
-                    <a href="/tasks/archive" style="color:#c2185b;font-size:0.9rem;">Wis filter</a>
+                    <a href="/tasks/archive" style="color:#5C7A5A;font-size:0.9rem;">Wis filter</a>
                 </form>
             </div>'''
-            body += f'<div class="card"><div class="section-title">Voltooide taken ({len(done_tasks)}) <a href="/tasks/export" style="float:right;font-size:0.85rem;color:#c2185b;font-weight:normal;">&#8659; Exporteer alle taken (CSV)</a></div>'
+            body += f'<div class="card"><div class="section-title">Voltooide taken ({len(done_tasks)}) <a href="/tasks/export" style="float:right;font-size:0.85rem;color:#5C7A5A;font-weight:normal;">&#8659; Exporteer alle taken (CSV)</a></div>'
             if done_tasks:
                 body += '<table><thead><tr><th>Taak</th><th>Klant</th><th>Toegewezen aan</th><th>Vervaldatum</th><th>Afgerond op</th></tr></thead><tbody>'
                 for t in done_tasks:
                     desc = f'<br><small style="color:#888;">{html.escape(t["description"])}</small>' if t['description'] else ''
                     body += f'''<tr>
                         <td>{html.escape(t["title"])}{desc}</td>
-                        <td><a href="/customers/view?id={t["customer_id"]}" style="color:#c2185b;">{html.escape(t["customer_name"])}</a></td>
+                        <td><a href="/customers/view?id={t["customer_id"]}" style="color:#5C7A5A;">{html.escape(t["customer_name"])}</a></td>
                         <td>{html.escape(t["assigned_to"])}</td>
                         <td style="color:#555;">{t["due_date"] or "-"}</td>
                         <td style="color:#888;font-size:0.85rem;">{t["created_at"][:10]}</td>
@@ -3699,9 +3703,9 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 role_title = params.get('role_title', [''])[0].strip() or None
                 bio = params.get('bio', [''])[0].strip() or None
                 skills = params.get('skills', [''])[0].strip() or None
-                avatar_color = params.get('avatar_color', ['#c2185b'])[0].strip()
+                avatar_color = params.get('avatar_color', ['#5C7A5A'])[0].strip()
                 if not avatar_color.startswith('#'):
-                    avatar_color = '#c2185b'
+                    avatar_color = '#5C7A5A'
                 with sqlite3.connect(DB_PATH, timeout=10) as conn:
                     cur = conn.cursor()
                     cur.execute('SELECT user_id FROM comm_profiles WHERE user_id=?', (target_id,))
@@ -4324,10 +4328,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             for c in convs:
                 unread = c['unread'] or 0
                 snippet = html.escape((c['last_content'] or '')[:80])
-                badge = f'<span style="background:#c2185b;color:#fff;border-radius:50%;font-size:0.75rem;font-weight:bold;min-width:20px;height:20px;line-height:20px;text-align:center;display:inline-block;margin-left:0.4rem;">{unread}</span>' if unread else ''
-                row_bg = 'background:#fce4ec;' if unread else ''
+                badge = f'<span style="background:#5C7A5A;color:#fff;border-radius:50%;font-size:0.75rem;font-weight:bold;min-width:20px;height:20px;line-height:20px;text-align:center;display:inline-block;margin-left:0.4rem;">{unread}</span>' if unread else ''
+                row_bg = 'background:#EDF3EC;' if unread else ''
                 body += f'''<a href="/messages/conversation?with={c["other_id"]}" style="display:flex;align-items:center;padding:0.85rem 1.1rem;border-bottom:1px solid #eee;text-decoration:none;color:inherit;{row_bg}">
-                    <div style="width:38px;height:38px;border-radius:50%;background:#c2185b;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:1rem;margin-right:0.85rem;flex-shrink:0;">{html.escape(c["other_name"][0].upper())}</div>
+                    <div style="width:38px;height:38px;border-radius:50%;background:#5C7A5A;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:1rem;margin-right:0.85rem;flex-shrink:0;">{html.escape(c["other_name"][0].upper())}</div>
                     <div style="flex:1;min-width:0;">
                         <div style="font-weight:{"bold" if unread else "normal"};">{html.escape(c["other_name"])}{badge}</div>
                         <div style="font-size:0.85rem;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{snippet}</div>
@@ -4362,16 +4366,16 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             msgs = cur.fetchall()
         other_name = other['username']
         body = html_header(f'Gesprek met {other_name}', True, username, user_id)
-        body += f'<div style="display:flex;align-items:center;gap:0.75rem;margin-top:1.5rem;margin-bottom:1rem;"><a href="/messages" style="color:#c2185b;">&#8592; Terug</a><h2 style="margin:0;">&#128172; {html.escape(other_name)}</h2></div>'
+        body += f'<div style="display:flex;align-items:center;gap:0.75rem;margin-top:1.5rem;margin-bottom:1rem;"><a href="/messages" style="color:#5C7A5A;">&#8592; Terug</a><h2 style="margin:0;">&#128172; {html.escape(other_name)}</h2></div>'
         body += '<div id="chat-box" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.2rem;max-height:65vh;overflow-y:auto;padding:0.5rem;">'
         for m in msgs:
             is_me = m['sender_id'] == user_id
             align = 'flex-end' if is_me else 'flex-start'
-            bg = '#c2185b' if is_me else '#f0f0f0'
+            bg = '#5C7A5A' if is_me else '#f0f0f0'
             fg = '#fff' if is_me else '#333'
             reply_html = ''
             if m['reply_content']:
-                border_col = 'rgba(255,255,255,0.5)' if is_me else '#c2185b'
+                border_col = 'rgba(255,255,255,0.5)' if is_me else '#5C7A5A'
                 reply_html = f'<div style="font-size:0.78rem;border-left:3px solid {border_col};padding-left:0.4rem;margin-bottom:0.3rem;opacity:0.85;">{html.escape(m["reply_from"] or "")}: {html.escape((m["reply_content"] or "")[:60])}</div>'
             safe_sender = html.escape(m["sender_name"]).replace("'", "&#39;")
             safe_content = html.escape((m["content"] or "")[:60]).replace("'", "&#39;")
@@ -4381,13 +4385,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 </div>
                 <div style="font-size:0.75rem;color:#aaa;margin-top:0.15rem;display:flex;gap:0.5rem;align-items:center;">
                     {(m["created_at"] or "")[:16]}
-                    <a href="#" onclick="setReply({m["id"]},'{safe_sender}','{safe_content}');return false;" style="color:#c2185b;font-size:0.75rem;">&#8617; Reply</a>
+                    <a href="#" onclick="setReply({m["id"]},'{safe_sender}','{safe_content}');return false;" style="color:#5C7A5A;font-size:0.75rem;">&#8617; Reply</a>
                 </div>
             </div>'''
         body += '</div>'
-        body += f'''<div id="reply-preview" style="display:none;background:#fce4ec;border-left:4px solid #c2185b;padding:0.4rem 0.8rem;border-radius:4px;margin-bottom:0.5rem;font-size:0.85rem;">
+        body += f'''<div id="reply-preview" style="display:none;background:#EDF3EC;border-left:4px solid #5C7A5A;padding:0.4rem 0.8rem;border-radius:4px;margin-bottom:0.5rem;font-size:0.85rem;">
             <span id="reply-preview-text" style="flex:1;"></span>
-            <button onclick="clearReply()" style="float:right;background:none;border:none;cursor:pointer;color:#c2185b;font-size:1rem;">&#10005;</button>
+            <button onclick="clearReply()" style="float:right;background:none;border:none;cursor:pointer;color:#5C7A5A;font-size:1rem;">&#10005;</button>
         </div>
         <form method="POST" action="/messages/conversation?with={other_id}" style="display:flex;gap:0.5rem;align-items:flex-end;">
             <input type="hidden" name="reply_to" id="reply-to-input" value="">
@@ -4476,7 +4480,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         body = html_header('Dashboard', True, username, user_id)
         body += '<h2 class="mt-4">Dashboard</h2>'
         # Stats row
-        def _stat(val, label, color='#c2185b'):
+        def _stat(val, label, color='#5C7A5A'):
             return f'<div class="card" style="flex:1;min-width:130px;text-align:center;padding:0.75rem;"><div style="font-size:1.8rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.85rem;color:#555;">{label}</div></div>'
         body += f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
         body += _stat(total_customers, 'Klanten')
@@ -4504,7 +4508,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             cust_m = user_customer_stats.get(us['id'], 0)
             overdue_col = '#dc3545' if (us['overdue_tasks'] or 0) > 0 else '#388e3c'
             body += f'''<tr>
-                <td><a href="/users/profile?id={us['id']}" style="color:#c2185b;">{html.escape(us['username'])}</a></td>
+                <td><a href="/users/profile?id={us['id']}" style="color:#5C7A5A;">{html.escape(us['username'])}</a></td>
                 <td>{us['open_tasks'] or 0}</td>
                 <td style="color:{overdue_col};font-weight:bold;">{us['overdue_tasks'] or 0}</td>
                 <td>{inter_m}</td>
@@ -4520,14 +4524,14 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 is_overdue = date_str < today_iso
                 date_color = '#dc3545' if is_overdue else '#555'
                 overdue_label = ' <span style="background:#dc3545;color:#fff;font-size:0.75rem;border-radius:3px;padding:0.1rem 0.4rem;">verlopen</span>' if is_overdue else ''
-                cust_link = f"<a href='/customers/view?id={t['customer_id']}' style='color:#c2185b;font-weight:bold;'>{html.escape(t['customer_name'])}</a>"
+                cust_link = f"<a href='/customers/view?id={t['customer_id']}' style='color:#5C7A5A;font-weight:bold;'>{html.escape(t['customer_name'])}</a>"
                 assigned_to = html.escape(t['assigned_to']) if t['assigned_to'] else ''
                 resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=dashboard' style='float:right;background:#198754;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;'>&#10003; Resolve</a>"
                 tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'>{resolve_btn}{html.escape(t['title'])}{overdue_label}<br>{cust_link} &middot; <small style='color:#888;'>{assigned_to}</small> &middot; <small style='color:{date_color};'>&#128197; {date_str}</small></div>"
         else:
             tasks_html = '<p>Geen openstaande taken.</p>'
         body += f'''<div class="card">
-            <div class="section-title">Openstaande taken (komende 14 dagen + verlopen) <a href="/tasks/archive" style="float:right;font-size:0.85rem;color:#c2185b;font-weight:normal;">&#128451; Archief voltooide taken</a></div>
+            <div class="section-title">Openstaande taken (komende 14 dagen + verlopen) <a href="/tasks/archive" style="float:right;font-size:0.85rem;color:#5C7A5A;font-weight:normal;">&#128451; Archief voltooide taken</a></div>
             {tasks_html}
         </div>'''
         # Recent notes
@@ -4570,7 +4574,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     if is_admin_user:
                         toggle_btn = f'<a href="/users/toggle-admin?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Admin-rechten verwijderen van {html.escape(user["username"])}?\');">Verwijder admin</a>'
                     else:
-                        toggle_btn = f'<a href="/users/toggle-admin?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#c2185b;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} admin maken?\');">Maak admin</a>'
+                        toggle_btn = f'<a href="/users/toggle-admin?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#5C7A5A;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} admin maken?\');">Maak admin</a>'
                     if is_comm_user:
                         comm_btn = f'<a href="/users/toggle-comm?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Comm-team verwijderen van {html.escape(user["username"])}?\');">&#128101; Comm uit</a>'
                     else:
@@ -4586,7 +4590,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 body += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <strong>{html.escape(user['username'])}</strong> ({html.escape(user['email'])})
-                        {'<span style="font-size:0.75rem;background:#c2185b;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">admin</span>' if is_admin_user else ''}
+                        {'<span style="font-size:0.75rem;background:#5C7A5A;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">admin</span>' if is_admin_user else ''}
                         {'<span style="font-size:0.75rem;background:#7b1fa2;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">&#128101; comm</span>' if is_comm_user else ''}
                         {'<span style="font-size:0.75rem;background:#1565c0;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">&#9881; gov</span>' if is_gov_user else ''}
                         <div style="font-size:0.8rem; color:#666;">Aangemaakt op {(user['created_at'] or '')[:10]}</div>
@@ -4609,7 +4613,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 <label>Gebruikersnaam<br><input type="text" name="username" required style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
                 <label>E‑mail<br><input type="email" name="email" required style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
                 <label>Wachtwoord<br><input type="password" name="password" required style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
-                <button type="submit" style="background-color:#c2185b; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Gebruiker toevoegen</button>
+                <button type="submit" style="background-color:#5C7A5A; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Gebruiker toevoegen</button>
             </form>
         </div>'''
         body += html_footer()
@@ -4655,7 +4659,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         <h3 style="margin-top:0;">&#10003; Taak afronden</h3>
         {error_html}
         <p><strong>{html.escape(task["title"])}</strong><br>
-        <small style="color:#666;">Klant: <a href="/customers/view?id={task["customer_id"]}" style="color:#c2185b;">{html.escape(task["customer_name"])}</a></small></p>
+        <small style="color:#666;">Klant: <a href="/customers/view?id={task["customer_id"]}" style="color:#5C7A5A;">{html.escape(task["customer_name"])}</a></small></p>
         <form method="POST" action="/tasks/resolve?id={task_id}&from={html.escape(from_page)}">
             <div style="margin-bottom:0.75rem;">
                 <label style="font-weight:bold;">Contactmoment type *</label><br>
@@ -4775,7 +4779,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         overdue = [t for t in open_tasks if t['due_date'] and t['due_date'] < datetime.date.today().isoformat()]
         body += f'''<div style="display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
             <div class="card" style="flex:1;min-width:140px;text-align:center;">
-                <div style="font-size:2rem;font-weight:bold;color:#c2185b;">{len(open_tasks)}</div>
+                <div style="font-size:2rem;font-weight:bold;color:#5C7A5A;">{len(open_tasks)}</div>
                 <div>Open taken</div>
             </div>
             <div class="card" style="flex:1;min-width:140px;text-align:center;">
@@ -4801,7 +4805,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 desc = f'<br><small style="color:#666;">{html.escape(t["description"])}</small>' if t['description'] else ''
                 resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=users/profile' style='background:#198754;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;margin-left:0.5rem;'>&#10003; Resolve</a>"
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.5rem 0;">
-                    <a href="/customers/view?id={t['customer_id']}" style="color:#c2185b;font-weight:bold;">{html.escape(t['customer_name'])}</a>
+                    <a href="/customers/view?id={t['customer_id']}" style="color:#5C7A5A;font-weight:bold;">{html.escape(t['customer_name'])}</a>
                     &mdash; {html.escape(t['title'])}{desc}
                     <span style="float:right;color:{due_color};font-size:0.85rem;">&#128197; {due} {resolve_btn}</span>
                 </div>'''
@@ -4814,7 +4818,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             body += '<table><thead><tr><th>Naam</th><th>Bedrijf</th><th>Type</th><th>E-mail</th><th>Telefoon</th></tr></thead><tbody>'
             for c in linked_customers:
                 body += f'''<tr>
-                    <td><a href="/customers/view?id={c['id']}" style="color:#c2185b;">{html.escape(c['name'])}</a></td>
+                    <td><a href="/customers/view?id={c['id']}" style="color:#5C7A5A;">{html.escape(c['name'])}</a></td>
                     <td>{html.escape(c['company'] or '-')}</td>
                     <td>{html.escape((c['category'] or 'klant').capitalize())}</td>
                     <td>{html.escape(c['email'])}</td>
@@ -4835,7 +4839,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">
                     <small style="color:#888;">{date_str}</small>
                     <strong style="margin-left:0.5rem;">{type_label}</strong>
-                    &middot; <a href="/customers/view?id={i['customer_id']}" style="color:#c2185b;">{html.escape(i['customer_name'])}</a>{note_part}
+                    &middot; <a href="/customers/view?id={i['customer_id']}" style="color:#5C7A5A;">{html.escape(i['customer_name'])}</a>{note_part}
                 </div>'''
         else:
             body += '<p>Nog geen interacties geregistreerd.</p>'
@@ -4848,7 +4852,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 snippet = (content_val[:120] + '…') if len(content_val) > 120 else content_val
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">
                     <small style="color:#888;">{n['created_at'][:10]}</small>
-                    &middot; <a href="/customers/view?id={n['customer_id']}" style="color:#c2185b;">{html.escape(n['customer_name'])}</a>
+                    &middot; <a href="/customers/view?id={n['customer_id']}" style="color:#5C7A5A;">{html.escape(n['customer_name'])}</a>
                     <br><span style="color:#333;">{html.escape(snippet)}</span>
                 </div>'''
         else:
@@ -4859,7 +4863,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         if added_customers:
             for c in added_customers:
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">
-                    <a href="/customers/view?id={c['id']}" style="color:#c2185b;font-weight:bold;">{html.escape(c['name'])}</a>
+                    <a href="/customers/view?id={c['id']}" style="color:#5C7A5A;font-weight:bold;">{html.escape(c['name'])}</a>
                     {(' &middot; ' + html.escape(c['company'])) if c['company'] else ''}
                     <span style="font-size:0.8rem;color:#888;float:right;">{(c['category'] or 'klant').capitalize()} &middot; {c['created_at'][:10]}</span>
                 </div>'''
@@ -4877,16 +4881,16 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             body += '</div></details>'
         # Berichten sectie (alleen op eigen profiel)
         if viewer_id == pid:
-            unread_badge = f' <span style="background:#c2185b;color:#fff;border-radius:50%;font-size:0.75rem;font-weight:bold;min-width:20px;height:20px;line-height:20px;text-align:center;display:inline-block;margin-left:0.3rem;">{msg_unread_total}</span>' if msg_unread_total else ''
-            body += f'<div class="card"><div class="section-title">&#128172; Berichten{unread_badge} <a href="/messages" style="float:right;font-size:0.85rem;font-weight:normal;color:#c2185b;">Alle gesprekken</a></div>'
+            unread_badge = f' <span style="background:#5C7A5A;color:#fff;border-radius:50%;font-size:0.75rem;font-weight:bold;min-width:20px;height:20px;line-height:20px;text-align:center;display:inline-block;margin-left:0.3rem;">{msg_unread_total}</span>' if msg_unread_total else ''
+            body += f'<div class="card"><div class="section-title">&#128172; Berichten{unread_badge} <a href="/messages" style="float:right;font-size:0.85rem;font-weight:normal;color:#5C7A5A;">Alle gesprekken</a></div>'
             if msg_convs:
                 for c in msg_convs:
                     unread = c['unread'] or 0
                     snippet = html.escape((c['last_content'] or '')[:60])
-                    row_bg = 'background:#fce4ec;' if unread else ''
-                    badge = f'<span style="background:#c2185b;color:#fff;border-radius:50%;font-size:0.72rem;font-weight:bold;min-width:18px;height:18px;line-height:18px;text-align:center;display:inline-block;margin-left:0.3rem;">{unread}</span>' if unread else ''
+                    row_bg = 'background:#EDF3EC;' if unread else ''
+                    badge = f'<span style="background:#5C7A5A;color:#fff;border-radius:50%;font-size:0.72rem;font-weight:bold;min-width:18px;height:18px;line-height:18px;text-align:center;display:inline-block;margin-left:0.3rem;">{unread}</span>' if unread else ''
                     body += f'''<a href="/messages/conversation?with={c["other_id"]}" style="display:flex;align-items:center;padding:0.6rem 0;border-bottom:1px solid #eee;text-decoration:none;color:inherit;{row_bg}">
-                        <div style="width:32px;height:32px;border-radius:50%;background:#c2185b;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:0.9rem;margin-right:0.7rem;flex-shrink:0;">{html.escape(c["other_name"][0].upper())}</div>
+                        <div style="width:32px;height:32px;border-radius:50%;background:#5C7A5A;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:0.9rem;margin-right:0.7rem;flex-shrink:0;">{html.escape(c["other_name"][0].upper())}</div>
                         <div style="flex:1;min-width:0;">
                             <span style="font-weight:{"bold" if unread else "normal"};">{html.escape(c["other_name"])}</span>{badge}
                             <div style="font-size:0.82rem;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{snippet}</div>
@@ -4934,7 +4938,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 name = html.escape(f['name'])
                 body += f'<div style="border-bottom:1px solid #eee; padding:0.5rem 0;">'
                 body += f'<strong>{label}</strong> <small>({name})</small>'
-                body += f'<a href="/fields/delete?id={fid}" style="color:#c2185b; float:right;" onclick="return confirm(\'Weet je zeker dat je dit veld wilt verwijderen?\');">Verwijder</a>'
+                body += f'<a href="/fields/delete?id={fid}" style="color:#5C7A5A; float:right;" onclick="return confirm(\'Weet je zeker dat je dit veld wilt verwijderen?\');">Verwijder</a>'
                 body += '</div>'
         else:
             body += '<p>Er zijn nog geen extra velden.</p>'
@@ -5020,7 +5024,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     html_sections += f'''<div style="margin:0.3rem 0;">
                         <strong>{label}</strong> ({count})
                         <div style="background-color:#e9ecef; border-radius:4px; overflow:hidden; height:8px;">
-                            <div style="width:{width}%; background-color:#c2185b; height:100%;"></div>
+                            <div style="width:{width}%; background-color:#5C7A5A; height:100%;"></div>
                         </div>
                     </div>'''
             else:
@@ -5083,14 +5087,14 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         # Filter buttons Intern / Extern
         def _tab(label, val):
             active = relation_filter == val
-            base_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #c2185b;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
-            style = base_style + ('background:#c2185b;color:#fff;font-weight:bold;' if active else 'color:#c2185b;')
+            base_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #5C7A5A;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
+            style = base_style + ('background:#5C7A5A;color:#fff;font-weight:bold;' if active else 'color:#5C7A5A;')
             extra = (f'&q={q_enc}' if search else '') + (f'&sort={sort_col}&dir={sort_dir}' if sort_col != 'name' or sort_dir != 'asc' else '') + (f'&verbinding={urllib.parse.quote(verbinding_filter)}' if verbinding_filter else '')
             href = f'/customers?relatie={val}' + extra
             return f'<a href="{href}" style="{style}">{label}</a>'
         alle_active = not relation_filter
-        alle_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #c2185b;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
-        alle_style += 'background:#c2185b;color:#fff;font-weight:bold;' if alle_active else 'color:#c2185b;'
+        alle_style = 'display:inline-block;padding:0.35rem 1.1rem;border-radius:20px;border:2px solid #5C7A5A;text-decoration:none;font-size:0.9rem;margin-right:0.4rem;'
+        alle_style += 'background:#5C7A5A;color:#fff;font-weight:bold;' if alle_active else 'color:#5C7A5A;'
         alle_href = '/customers' + (f'?q={q_enc}' if search else '')
         filter_btns = f'<a href="{alle_href}" style="{alle_style}">Alle</a>' + _tab('Extern', 'extern') + _tab('Intern', 'intern')
         # Verbinding filter buttons
@@ -5224,7 +5228,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         <div style="font-size:1.1rem;font-weight:bold;margin-bottom:0.5rem;" id="overlay-title">Bezig...</div>
         <div style="color:#666;font-size:0.9rem;margin-bottom:1rem;" id="overlay-msg">Even geduld, de server verwerkt je actie...</div>
         <div style="background:#eee;border-radius:4px;height:8px;overflow:hidden;">
-            <div id="overlay-bar" style="background:#c2185b;height:8px;width:0%;transition:width 0.4s linear;border-radius:4px;"></div>
+            <div id="overlay-bar" style="background:#5C7A5A;height:8px;width:0%;transition:width 0.4s linear;border-radius:4px;"></div>
         </div>
         <div style="margin-top:0.6rem;font-size:0.85rem;color:#888;" id="overlay-time"></div>
     </div>
@@ -5475,9 +5479,9 @@ function bulkAction(action){
                                 <label class="form-label"><strong>Accountmanagers</strong></label>
                                 <style>
                                     .user-pill input[type=checkbox],.user-pill input[type=radio]{{display:none}}
-                                    .user-pill label{{display:inline-block;padding:0.35rem 1rem;border-radius:20px;border:2px solid #c2185b;color:#c2185b;cursor:pointer;margin:0.25rem 0.25rem 0.25rem 0;font-size:0.9rem;transition:background 0.15s,color 0.15s}}
-                                    .user-pill label:hover{{background:#fce4ec}}
-                                    .user-pill input[type=checkbox]:checked+label,.user-pill input[type=radio]:checked+label{{background:#c2185b;color:#fff;font-weight:bold}}
+                                    .user-pill label{{display:inline-block;padding:0.35rem 1rem;border-radius:20px;border:2px solid #5C7A5A;color:#5C7A5A;cursor:pointer;margin:0.25rem 0.25rem 0.25rem 0;font-size:0.9rem;transition:background 0.15s,color 0.15s}}
+                                    .user-pill label:hover{{background:#EDF3EC}}
+                                    .user-pill input[type=checkbox]:checked+label,.user-pill input[type=radio]:checked+label{{background:#5C7A5A;color:#fff;font-weight:bold}}
                                 </style>
                                 <div style="margin-top:0.3rem;">
                                     {users_checkboxes_html}
@@ -5655,7 +5659,7 @@ function bulkAction(action){
             <label>Vervaldatum<br><input type="date" name="due_date" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
             <label>Beschrijving<br><input type="text" name="description" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
             <label>Toewijzen aan<br><select name="assigned_user_id" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;">{user_options}</select></label>
-            <button type="submit" style="background-color:#c2185b; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Taak toevoegen</button>
+            <button type="submit" style="background-color:#5C7A5A; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Taak toevoegen</button>
         </form>'''
         # Task list
         if tasks:
@@ -5667,7 +5671,7 @@ function bulkAction(action){
                 actions = []
                 if task['status'] == 'open':
                     actions.append(f"<a href='/tasks/complete?id={task['task_id']}&customer_id={customer['id']}' style='color:#388e3c;'>Markeer voltooid</a>")
-                actions.append(f"<a href='/tasks/delete?id={task['task_id']}&customer_id={customer['id']}' style='color:#c2185b;' onclick=\"return confirm('Weet je zeker dat je deze taak wilt verwijderen?');\">Verwijder</a>")
+                actions.append(f"<a href='/tasks/delete?id={task['task_id']}&customer_id={customer['id']}' style='color:#5C7A5A;' onclick=\"return confirm('Weet je zeker dat je deze taak wilt verwijderen?');\">Verwijder</a>")
                 action_html = ' | '.join(actions)
                 tasks_section += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0;">
                     <span style="color:{status_color}; font-weight:bold;">{status_label}</span>
@@ -5685,7 +5689,7 @@ function bulkAction(action){
         notes_section = ''
         notes_section += f'''<form method="post" style="margin-bottom:1rem;">
             <label>Nieuwe notitie<br><textarea name="content" rows="3" required style="width:100%; padding:0.4rem;"></textarea></label><br>
-            <button type="submit" style="background-color:#c2185b; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Opslaan</button>
+            <button type="submit" style="background-color:#5C7A5A; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Opslaan</button>
         </form>'''
         if notes:
             for note in notes:
@@ -5693,7 +5697,7 @@ function bulkAction(action){
                 notes_section += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0;">
                     {html.escape(note['content'])}
                     <div style="font-size:0.8rem; color:#666;">{note['created_at']} {author_part}</div>
-                    <div style="font-size:0.8rem;"><a href='/notes/delete?id={note['note_id']}&customer_id={customer['id']}' style='color:#c2185b;' onclick="return confirm('Weet je zeker dat je deze notitie wilt verwijderen?');">Verwijder</a></div>
+                    <div style="font-size:0.8rem;"><a href='/notes/delete?id={note['note_id']}&customer_id={customer['id']}' style='color:#5C7A5A;' onclick="return confirm('Weet je zeker dat je deze notitie wilt verwijderen?');">Verwijder</a></div>
                 </div>'''
         else:
             notes_section += '<p>Er zijn nog geen notities.</p>'
@@ -5721,7 +5725,7 @@ function bulkAction(action){
             <small style="display:block;margin-bottom:0.4rem;color:#666;">Pas de datum aan als het contact eerder plaatsvond — de herinnering wordt dan automatisch berekend vanaf die datum.</small>
             <label>Notitie (optioneel)<br>
                 <input type="text" name="note" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
-            <button type="submit" style="background-color:#c2185b; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Interactie toevoegen</button>
+            <button type="submit" style="background-color:#5C7A5A; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Interactie toevoegen</button>
         </form>'''
         # List interactions
         if interactions:
@@ -5792,9 +5796,9 @@ function bulkAction(action){
         parts = []
         for href, label, key in tabs:
             if key == active:
-                parts.append(f'<a href="{href}" style="background:#c2185b;color:#fff;padding:0.4rem 0.85rem;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.9rem;">{label}</a>')
+                parts.append(f'<a href="{href}" style="background:#5C7A5A;color:#fff;padding:0.4rem 0.85rem;border-radius:4px;text-decoration:none;font-weight:bold;font-size:0.9rem;">{label}</a>')
             else:
-                parts.append(f'<a href="{href}" style="background:#fff;color:#c2185b;border:2px solid #c2185b;padding:0.3rem 0.85rem;border-radius:4px;text-decoration:none;font-size:0.9rem;">{label}</a>')
+                parts.append(f'<a href="{href}" style="background:#fff;color:#5C7A5A;border:2px solid #5C7A5A;padding:0.3rem 0.85rem;border-radius:4px;text-decoration:none;font-size:0.9rem;">{label}</a>')
         return '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:1rem;">' + ''.join(parts) + '</div>'
 
     def _priority_badge(self, priority: str) -> str:
@@ -5876,7 +5880,7 @@ function bulkAction(action){
         body += f'<a href="/comm/board" style="text-decoration:none;border-radius:14px;padding:0.25rem 0.75rem;font-size:0.82rem;font-weight:bold;{all_pill_style}">Iedereen</a>'
         for m in comm_members:
             active = user_filter == m['id']
-            pill_style = 'background:#c2185b;color:#fff;' if active else 'background:#fce4ec;color:#880e4f;'
+            pill_style = 'background:#5C7A5A;color:#fff;' if active else 'background:#EDF3EC;color:#3d5c3b;'
             href = '/comm/board' if active else f'/comm/board?user_filter={m["id"]}'
             body += f'<a href="{href}" style="text-decoration:none;border-radius:14px;padding:0.25rem 0.75rem;font-size:0.82rem;{pill_style}">&#128100; {html.escape(m["username"])}</a>'
         body += '</div>'
@@ -5902,7 +5906,7 @@ function bulkAction(action){
             body += '</ul></div>'
 
         # Stats row
-        def _stat(val, label, color='#c2185b'):
+        def _stat(val, label, color='#5C7A5A'):
             return f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.8rem;color:#555;">{label}</div></div>'
         total_open    = len(backlog) + len(bezig)
         total_overdue = sum(1 for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] and t['due_date'] < today_iso)
@@ -5918,7 +5922,7 @@ function bulkAction(action){
         body += '<div class="card" style="margin-top:0.25rem;"><table><thead><tr><th>Teamlid</th><th>Open</th><th>Verlopen</th><th>Afgerond</th></tr></thead><tbody>'
         for m in member_stats:
             oc = '#dc3545' if (m['overdue_tasks'] or 0) > 0 else '#388e3c'
-            body += f'<tr><td><a href="/comm/profile?id={m["id"]}" style="color:#c2185b;">{html.escape(m["username"])}</a></td><td>{m["open_tasks"] or 0}</td><td style="color:{oc};font-weight:bold;">{m["overdue_tasks"] or 0}</td><td style="color:#388e3c;">{m["done_tasks"] or 0}</td></tr>'
+            body += f'<tr><td><a href="/comm/profile?id={m["id"]}" style="color:#5C7A5A;">{html.escape(m["username"])}</a></td><td>{m["open_tasks"] or 0}</td><td style="color:{oc};font-weight:bold;">{m["overdue_tasks"] or 0}</td><td style="color:#388e3c;">{m["done_tasks"] or 0}</td></tr>'
         body += '</tbody></table></div></details>'
 
         # Quick add form
@@ -6338,7 +6342,7 @@ function bulkAction(action){
         body += _section('&#9728; Morgen', morgen, border='#1565c0')
         body += _section('&#128336; Deze week', rest, border='#388e3c')
         if hoog_other:
-            body += _section('&#9650; Hoge prioriteit (later)', hoog_other, border='#c2185b')
+            body += _section('&#9650; Hoge prioriteit (later)', hoog_other, border='#5C7A5A')
         if not week_tasks and not hoog_other:
             body += '<div class="card"><p style="color:#888;">Geen taken deze week. Goed bezig! &#127881;</p></div>'
         body += html_footer()
@@ -6388,7 +6392,7 @@ function bulkAction(action){
                                     COALESCE(eg.due_date,'9999-12-31') ASC''', (profile_id,))
             my_gov_tasks = cur.fetchall()
 
-        avatar_color = (ext_profile['avatar_color'] if ext_profile and ext_profile['avatar_color'] else '#c2185b')
+        avatar_color = (ext_profile['avatar_color'] if ext_profile and ext_profile['avatar_color'] else '#5C7A5A')
         role_title   = (ext_profile['role_title'] if ext_profile and ext_profile['role_title'] else '')
         bio          = (ext_profile['bio'] if ext_profile and ext_profile['bio'] else '')
         skills_raw   = (ext_profile['skills'] if ext_profile and ext_profile['skills'] else '')
@@ -6403,10 +6407,10 @@ function bulkAction(action){
         skills_html = ''
         if skills_raw:
             skills_html = '<div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">' + ''.join(
-                f'<span style="background:#fce4ec;color:#c2185b;border-radius:12px;padding:0.15rem 0.6rem;font-size:0.78rem;">{html.escape(s.strip())}</span>'
+                f'<span style="background:#EDF3EC;color:#5C7A5A;border-radius:12px;padding:0.15rem 0.6rem;font-size:0.78rem;">{html.escape(s.strip())}</span>'
                 for s in skills_raw.split(',') if s.strip()) + '</div>'
         bio_html = f'<div style="font-size:0.85rem;color:#555;margin-top:0.35rem;font-style:italic;">{html.escape(bio)}</div>' if bio else ''
-        role_html = f'<div style="font-size:0.88rem;color:#c2185b;font-weight:bold;">{html.escape(role_title)}</div>' if role_title else ''
+        role_html = f'<div style="font-size:0.88rem;color:#5C7A5A;font-weight:bold;">{html.escape(role_title)}</div>' if role_title else ''
         body += f'''<div class="card" style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;margin-bottom:1rem;">
             <div style="width:60px;height:60px;border-radius:50%;background:{avatar_color};color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.7rem;font-weight:bold;flex-shrink:0;">{html.escape(profile_user["username"][0].upper())}</div>
             <div style="flex:1;">
@@ -6423,7 +6427,7 @@ function bulkAction(action){
         today_due  = [t for t in my_open if t['due_date'] == today_iso]
 
         # Stats row
-        def _stat(v, l, c='#c2185b'):
+        def _stat(v, l, c='#5C7A5A'):
             return f'<div class="card" style="flex:1;min-width:90px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:{c};">{v}</div><div style="font-size:0.78rem;color:#555;">{l}</div></div>'
         soon_cnt = len(soon_tasks) + len(today_due)
         body += '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">'
@@ -6572,7 +6576,7 @@ function bulkAction(action){
                 elif kind == 'date':
                     type_icons = {'deadline':'&#9888;','milestone':'&#127937;','event':'&#127881;'}
                     icon = type_icons.get(item['event_type'], '&#128197;')
-                    body += f'<div style="padding:0.45rem 0.9rem;border-bottom:1px solid #f0f0f0;display:flex;gap:0.4rem;align-items:center;"><span style="font-size:0.75rem;background:#fce4ec;color:#c2185b;border-radius:3px;padding:0.05rem 0.3rem;">{icon} Datum</span> <a href="/comm/dates" style="flex:1;font-size:0.86rem;font-weight:bold;color:inherit;text-decoration:none;">{html.escape(item["title"])}</a></div>'
+                    body += f'<div style="padding:0.45rem 0.9rem;border-bottom:1px solid #f0f0f0;display:flex;gap:0.4rem;align-items:center;"><span style="font-size:0.75rem;background:#EDF3EC;color:#5C7A5A;border-radius:3px;padding:0.05rem 0.3rem;">{icon} Datum</span> <a href="/comm/dates" style="flex:1;font-size:0.86rem;font-weight:bold;color:inherit;text-decoration:none;">{html.escape(item["title"])}</a></div>'
                 elif kind == 'content':
                     platform_icons = {'instagram':'&#128247;','linkedin':'&#128188;','website':'&#127760;','email':'&#128140;','overig':'&#128204;'}
                     icon = platform_icons.get(item['platform'], '&#128204;')
@@ -6650,7 +6654,7 @@ function bulkAction(action){
                 <div><label style="font-size:0.8rem;font-weight:bold;">Prioriteit</label><br>
                     <select name="priority" class="form-control">{prio_opts}</select></div>
                 <div><button type="submit" class="btn btn-primary">Zoeken</button>
-                    <a href="/comm/search" style="color:#c2185b;font-size:0.85rem;padding:0.4rem 0.5rem;">Wis</a></div>
+                    <a href="/comm/search" style="color:#5C7A5A;font-size:0.85rem;padding:0.4rem 0.5rem;">Wis</a></div>
             </form></div>'''
 
         body += f'<div class="card"><div class="section-title">Resultaten ({len(results)})</div>'
@@ -6762,7 +6766,7 @@ function bulkAction(action){
         this_week = sum(1 for d in all_dates if today_iso <= d['date'] <= this_week_end)
         body += f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
         body += f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:#f57f17;">{this_week}</div><div style="font-size:0.78rem;color:#555;">Deze week</div></div>'
-        body += f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:#c2185b;">{upcoming}</div><div style="font-size:0.78rem;color:#555;">Aankomend</div></div>'
+        body += f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:#5C7A5A;">{upcoming}</div><div style="font-size:0.78rem;color:#555;">Aankomend</div></div>'
         body += f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:#aaa;">{past}</div><div style="font-size:0.78rem;color:#555;">Geweest</div></div>'
         body += '</div>'
 
@@ -6878,7 +6882,7 @@ function bulkAction(action){
             comm_members = cur.fetchall()
 
         platform_cfg = {
-            'instagram': ('&#128247;', '#e91e63', '#fce4ec'),
+            'instagram': ('&#128247;', '#e91e63', '#EDF3EC'),
             'linkedin':  ('&#128188;', '#0077b5', '#e3f2fd'),
             'website':   ('&#127760;', '#388e3c', '#e8f5e9'),
             'email':     ('&#128140;', '#f57f17', '#fff8e1'),
@@ -7022,9 +7026,9 @@ function bulkAction(action){
         role_title   = html.escape(p['role_title']   if p and p['role_title']   else '')
         bio          = html.escape(p['bio']           if p and p['bio']          else '')
         skills       = html.escape(p['skills']        if p and p['skills']       else '')
-        avatar_color = (p['avatar_color'] if p and p['avatar_color'] else '#c2185b')
+        avatar_color = (p['avatar_color'] if p and p['avatar_color'] else '#5C7A5A')
 
-        color_options = ['#c2185b','#7b1fa2','#1565c0','#00695c','#e65100','#37474f','#558b2f','#ad1457']
+        color_options = ['#5C7A5A','#7b1fa2','#1565c0','#00695c','#e65100','#37474f','#558b2f','#ad1457']
         color_btns = ''.join(
             f'<label style="cursor:pointer;"><input type="radio" name="avatar_color" value="{c}" {"checked" if avatar_color==c else ""} style="display:none;"><span style="display:inline-block;width:30px;height:30px;border-radius:50%;background:{c};border:3px solid {"#333" if avatar_color==c else "transparent"};margin:2px;"></span></label>'
             for c in color_options)
@@ -7111,7 +7115,7 @@ function bulkAction(action){
             'ideate': '#f57f17',
             'prototype': '#ef6c00',
             'test': '#388e3c',
-            'uittreden': '#c2185b',
+            'uittreden': '#5C7A5A',
         }
         return colors.get(phase, '#888')
 
@@ -7130,7 +7134,7 @@ function bulkAction(action){
     def _gov_tag_pills(self, tags: str) -> str:
         if not tags:
             return ''
-        tag_colors = ['#1565c0','#7b1fa2','#388e3c','#ef6c00','#c2185b','#37474f','#00695c']
+        tag_colors = ['#1565c0','#7b1fa2','#388e3c','#ef6c00','#5C7A5A','#37474f','#00695c']
         parts = []
         for i, t in enumerate(tags.split(',')):
             t = t.strip()
@@ -7243,7 +7247,7 @@ function bulkAction(action){
                 pct = round(done / rel_total * 100) if rel_total else 0
                 tag_html = self._gov_tag_pills(person['tags'] or '')
                 pt = person['project_type'] or ''
-                pt_colors = {'communicatie': '#c2185b', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
+                pt_colors = {'communicatie': '#5C7A5A', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
                 pt_html = f'<span style="font-size:0.68rem;background:{pt_colors.get(pt,"#888")};color:#fff;border-radius:3px;padding:0.05rem 0.3rem;margin-right:0.2rem;">{pt.capitalize()}</span>' if pt else ''
                 # Build inline checklist for this person
                 rel_cards = relevant_cards_for_person(person)
@@ -7501,7 +7505,7 @@ function bulkAction(action){
 
         type_labels = {'coaching': '&#128172; Coaching', 'intervisie': '&#128101; Intervisie', 'aandachtspunt': '&#127919; Aandachtspunt'}
         type_colors = {'coaching': '#1565c0', 'intervisie': '#7b1fa2', 'aandachtspunt': '#ef6c00'}
-        pt_colors = {'communicatie': '#c2185b', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
+        pt_colors = {'communicatie': '#5C7A5A', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
 
         body = html_header('Governance Personen', True, username, user_id)
         body += '<h2 class="mt-4">&#128101; Personen &amp; Profiel</h2>'
@@ -7715,7 +7719,7 @@ function bulkAction(action){
             body += f'<h3 style="color:{ph_color};margin-top:1rem;">{ph_label}</h3>'
             for card in cards:
                 items = items_by_card.get(card['id'], [])
-                pt_colors = {'communicatie': '#c2185b', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
+                pt_colors = {'communicatie': '#5C7A5A', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
                 card_pt = card['project_type'] or ''
                 pt_badge = f'<span style="font-size:0.72rem;background:{pt_colors.get(card_pt,"#888")};color:#fff;border-radius:3px;padding:0.05rem 0.35rem;margin-left:0.4rem;">{card_pt.capitalize()}</span>' if card_pt else '<span style="font-size:0.72rem;background:#888;color:#fff;border-radius:3px;padding:0.05rem 0.35rem;margin-left:0.4rem;">Alle typen</span>'
                 body += f'''<div class="card" style="border-left:4px solid {ph_color};margin-bottom:0.5rem;">
