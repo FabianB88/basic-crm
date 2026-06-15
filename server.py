@@ -1248,35 +1248,67 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     styles = '''
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     *, *::before, *::after { box-sizing: border-box; }
-    body { margin: 0; font-family: Inter, Arial, sans-serif; background-color: #F7F4F0; color: #1C1713; padding-top: 56px; font-size: 0.9rem; }
-    .navbar { background-color: #5C7A5A; color: #fff; position: fixed; top: 0; width: 100%; height: 56px; display: flex; align-items: center; padding: 0 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.12); z-index: 1000; }
-    .navbar a { color: rgba(255,255,255,0.9); text-decoration: none; margin-right: 1rem; font-weight: 500; font-size: 0.875rem; }
-    .navbar a:hover { color: #fff; }
+    body { margin: 0; font-family: Inter, Arial, sans-serif; background-color: #F7F4F0; color: #1C1713; padding-top: 56px; font-size: 0.9rem; line-height: 1.5; }
+
+    /* Navbar */
+    .navbar { background-color: #fff; color: #1C1713; position: fixed; top: 0; width: 100%; height: 52px; display: flex; align-items: center; padding: 0 1.25rem; border-bottom: 1px solid #E4DDD6; z-index: 1000; }
+    .navbar a { color: #7A6E66; text-decoration: none; margin-right: 0.85rem; font-weight: 500; font-size: 0.85rem; transition: color 0.12s; }
+    .navbar a:hover { color: #5C7A5A; }
+    .navbar .brand { color: #1C1713; font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; margin-right: 1.5rem; }
     .navbar .spacer { flex-grow: 1; }
+    .navbar .nav-user { color: #7A6E66; font-size: 0.82rem; }
+
+    /* Layout */
     .container { max-width: 980px; margin: 0 auto; padding: 1.25rem 1rem; }
-    .card { background-color: #fff; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid #E4DDD6; }
-    .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: #1C1713; }
-    .action-buttons a { display: inline-block; border: 1.5px solid #5C7A5A; border-radius: 20px; padding: 0.3rem 0.85rem; color: #5C7A5A; text-decoration: none; margin-right: 0.5rem; font-size: 0.85rem; font-weight: 500; }
-    .action-buttons a:hover { background-color: #5C7A5A; color: #fff; }
-    .icon { margin-right: 0.5rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
-    th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid #E4DDD6; }
-    th { background-color: #F7F4F0; font-weight: 600; color: #7A6E66; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
-    tr:hover td { background-color: #faf8f5; }
+
+    /* Cards */
+    .card { background-color: #fff; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #E4DDD6; }
+    .section-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.75rem; color: #7A6E66; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* Action buttons (pill style) */
+    .action-buttons a { display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid #E4DDD6; border-radius: 6px; padding: 0.3rem 0.75rem; color: #7A6E66; background: #F7F4F0; text-decoration: none; margin-right: 0.4rem; font-size: 0.82rem; font-weight: 500; }
+    .action-buttons a:hover { border-color: #5C7A5A; color: #5C7A5A; background: #EDF3EC; }
+
+    /* Lucide icons */
+    .icon { width: 14px; height: 14px; vertical-align: -2px; display: inline-block; flex-shrink: 0; stroke-width: 1.75; }
+    .icon-sm { width: 12px; height: 12px; vertical-align: -1px; }
+    .icon-nav { width: 13px; height: 13px; vertical-align: -2px; stroke-width: 2; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+    th, td { padding: 0.55rem 0.75rem; text-align: left; border-bottom: 1px solid #EDE8E3; }
+    th { background-color: #F7F4F0; font-weight: 600; color: #B0A49A; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background-color: #FAFAF9; }
     .text-end { text-align: right; }
-    .btn { display: inline-block; padding: 0.35rem 0.85rem; border: none; border-radius: 7px; font-size: 0.875rem; font-weight: 500; cursor: pointer; text-decoration: none; font-family: inherit; }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.85rem; border: none; border-radius: 7px; font-size: 0.85rem; font-weight: 500; cursor: pointer; text-decoration: none; font-family: inherit; transition: opacity 0.12s; }
+    .btn:hover { opacity: 0.88; }
     .btn-primary { background-color: #5C7A5A; color: #fff; }
-    .btn-secondary { background-color: #7A6E66; color: #fff; }
-    .btn-danger { background-color: #C0392B; color: #fff; }
-    .btn-sm { font-size: 0.8rem; padding: 0.2rem 0.6rem; }
-    .form-control { padding: 0.45rem 0.7rem; border: 1px solid #E4DDD6; border-radius: 7px; width: 100%; font-family: inherit; font-size: 0.9rem; background: #fff; color: #1C1713; outline: none; }
-    .form-control:focus { border-color: #5C7A5A; box-shadow: 0 0 0 3px rgba(92,122,90,0.12); }
-    .btn-outline-success { border: 1.5px solid #198754; color: #198754; background: transparent; border-radius: 7px; padding: 0.3rem 0.7rem; }
-    .btn-outline-success:hover { background-color: #198754; color: #fff; }
+    .btn-secondary { background-color: #F2EEE9; color: #7A6E66; border: 1px solid #E4DDD6; }
+    .btn-danger { background-color: #fef2f2; color: #C0392B; border: 1px solid #fecaca; }
+    .btn-sm { font-size: 0.78rem; padding: 0.2rem 0.6rem; }
+    .btn-link { background: none; color: #5C7A5A; border: none; padding: 0.35rem 0.5rem; font-size: 0.85rem; cursor: pointer; text-decoration: none; font-family: inherit; }
+
+    /* Forms */
+    .form-control, .form-select { padding: 0.42rem 0.7rem; border: 1px solid #E4DDD6; border-radius: 7px; width: 100%; font-family: inherit; font-size: 0.875rem; background: #fff; color: #1C1713; outline: none; }
+    .form-control:focus, .form-select:focus { border-color: #5C7A5A; box-shadow: 0 0 0 3px rgba(92,122,90,0.10); }
+    .form-label { display: block; font-size: 0.8rem; font-weight: 600; color: #7A6E66; margin-bottom: 0.3rem; }
+    .mb-3 { margin-bottom: 0.85rem; }
+    .mt-3 { margin-top: 0.75rem; }
+    .mt-4 { margin-top: 1rem; }
+
+    /* Search in navbar */
+    .btn-outline-success { border: 1px solid #E4DDD6; color: #5C7A5A; background: transparent; border-radius: 0 7px 7px 0; padding: 0.3rem 0.6rem; cursor: pointer; font-size: 0.85rem; }
+    .btn-outline-success:hover { background: #EDF3EC; }
+
+    /* Utilities */
     .d-flex { display: flex; }
     .me-2 { margin-right: 0.5rem; }
-    a { color: #5C7A5A; }
+    a { color: #5C7A5A; text-decoration: none; }
     a:hover { color: #4a6348; }
+    h2 { font-size: 1.15rem; font-weight: 700; color: #1C1713; margin: 0 0 0.5rem; letter-spacing: -0.01em; }
     '''
     # Determine navigation links based on login state.  We omit the
     # registration link unless there are no users yet; see users_exist() below.
@@ -1302,34 +1334,34 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
             # Restricted gebruikers: toon comm/gov links; CRM verbergbaar via toggle
             restricted_links = ''
             if _is_comm:
-                restricted_links += "<a href='/comm/board'>&#128101; Comm</a>"
+                restricted_links += "<a href='/comm/board'><i data-lucide="users" class="icon"></i> Comm</a>"
             if _is_gov:
-                restricted_links += "<a href='/gov/board'>&#9881; Gov</a>"
+                restricted_links += "<a href='/gov/board'><i data-lucide="settings" class="icon"></i> Gov</a>"
             nav_links_left = (
                 restricted_links
                 + f"<span id='crm-nav-links' style='display:none;'>{''.join(crm_links)}</span>"
                 + "<button id='crm-toggle-btn' onclick='toggleCRM()' "
                 + "style='background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.45);"
                 + "color:#fff;border-radius:4px;padding:0.15rem 0.55rem;cursor:pointer;"
-                + "font-size:0.8rem;margin-left:0.4rem;'>&#128279; CRM</button>"
+                + "font-size:0.8rem;margin-left:0.4rem;'><i data-lucide="link-2" class="icon"></i> CRM</button>"
             )
         else:
             nav_links_left = ''.join(crm_links)
             if _is_comm:
-                nav_links_left += "<a href='/comm/board'>&#128101; Comm</a>"
+                nav_links_left += "<a href='/comm/board'><i data-lucide="users" class="icon"></i> Comm</a>"
             if _is_gov:
-                nav_links_left += "<a href='/gov/board'>&#9881; Gov</a>"
+                nav_links_left += "<a href='/gov/board'><i data-lucide="settings" class="icon"></i> Gov</a>"
 
         profile_link = f"<a href='/users/profile?id={user_id}'>Mijn profiel</a>" if user_id else ''
-        nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/account/password'>&#128273; Wachtwoord</a> <a href='/logout'>Uitloggen</a>"
+        nav_links_right = f"{profile_link} <span style='color:rgba(255,255,255,0.6)'>|</span> <span>Ingelogd als {html.escape(username)}</span> <a href='/account/password'><i data-lucide="key-round" class="icon"></i> Wachtwoord</a> <a href='/logout'>Uitloggen</a>"
         nav_search = '''<form method="get" action="/customers" style="display:flex;align-items:center;margin:0 1rem;">
-            <input type="search" name="q" placeholder="&#128269; Klant zoeken..." style="padding:0.25rem 0.6rem;border:none;border-radius:4px 0 0 4px;font-size:0.85rem;width:160px;outline:none;">
-            <button type="submit" style="padding:0.25rem 0.6rem;background:#4a6348;color:#fff;border:none;border-radius:0 4px 4px 0;cursor:pointer;font-size:0.85rem;">&#10132;</button>
+            <input type="search" name="q" placeholder="<i data-lucide="search" class="icon"></i> Klant zoeken..." style="padding:0.25rem 0.6rem;border:none;border-radius:4px 0 0 4px;font-size:0.85rem;width:160px;outline:none;">
+            <button type="submit" style="padding:0.25rem 0.6rem;background:#4a6348;color:#fff;border:none;border-radius:0 4px 4px 0;cursor:pointer;font-size:0.85rem;"><i data-lucide="arrow-right" class="icon"></i></button>
         </form>'''
         popup_html = '''<div id="msg-popup" style="display:none;position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.2);padding:1rem 1.2rem;min-width:280px;max-width:360px;border-left:4px solid #5C7A5A;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
-    <strong style="color:#5C7A5A;">&#128172; Nieuw bericht van <span id="msg-popup-from"></span></strong>
-    <button onclick="closeMsgPopup()" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:#aaa;">&#10005;</button>
+    <strong style="color:#5C7A5A;"><i data-lucide="message-circle" class="icon"></i> Nieuw bericht van <span id="msg-popup-from"></span></strong>
+    <button onclick="closeMsgPopup()" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:#aaa;"><i data-lucide="x" class="icon"></i></button>
   </div>
   <div id="msg-popup-text" style="font-size:0.9rem;color:#333;margin-bottom:0.6rem;"></div>
   <a id="msg-popup-link" href="/messages" style="background:#5C7A5A;color:#fff;border-radius:4px;padding:0.25rem 0.8rem;text-decoration:none;font-size:0.85rem;">Bekijken</a>
@@ -1394,6 +1426,7 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{html.escape(title)}</title>
     <style>{styles}</style>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script>
     function toggleCRM() {{
         var el = document.getElementById('crm-nav-links');
@@ -1401,14 +1434,14 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
         if (!el) return;
         var showing = el.style.display !== 'none';
         el.style.display = showing ? 'none' : 'inline';
-        btn.innerHTML = showing ? '&#128279; CRM' : '&#10005; CRM';
+        btn.innerHTML = showing ? '<i data-lucide="link-2" class="icon"></i> CRM' : '<i data-lucide="x" class="icon"></i> CRM';
         localStorage.setItem('crmNavOpen', showing ? '0' : '1');
     }}
     document.addEventListener('DOMContentLoaded', function() {{
         if (localStorage.getItem('crmNavOpen') === '1') {{
             var el = document.getElementById('crm-nav-links');
             var btn = document.getElementById('crm-toggle-btn');
-            if (el) {{ el.style.display = 'inline'; btn.innerHTML = '&#10005; CRM'; }}
+            if (el) {{ el.style.display = 'inline'; btn.innerHTML = '<i data-lucide="x" class="icon"></i> CRM'; }}
         }}
     }});
     </script>
@@ -1417,23 +1450,19 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
 {popup_html}
 {polling_js}
 <nav class="navbar">
-    <a href="/">CRM</a>
+    <a href="/" class="brand">Green Office CRM</a>
     <div class="spacer"></div>
     {nav_links_left}
     {nav_search}
     <div class="spacer"></div>
-    {nav_links_right}
+    <span class="nav-user">{nav_links_right}</span>
 </nav>
 <div class="container">
 '''
 
 
 def html_footer() -> str:
-    """Return the HTML footer.  Simply closes the container and page.
-
-    External scripts are omitted because all styling is embedded inline.
-    """
-    return '</div></body></html>'
+    return '<script>if(window.lucide)lucide.createIcons();</script></div></body></html>'
 
 
 def redirect(location: str) -> bytes:
@@ -1647,7 +1676,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                             error = 'Huidig wachtwoord is onjuist.'
                 if error:
                     body = html_header('Wachtwoord wijzigen', True, username, user_id)
-                    body += f'<h2 class="mt-4">&#128273; Wachtwoord wijzigen</h2>'
+                    body += f'<h2 class="mt-4"><i data-lucide="key-round" class="icon"></i> Wachtwoord wijzigen</h2>'
                     body += f'<div class="alert" style="background:#fdecea;color:#c62828;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.75rem;">{html.escape(error)}</div>'
                     body += self._render_password_form(user_id)
                     body += html_footer()
@@ -1662,13 +1691,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                         cur.execute('UPDATE users SET password=? WHERE id=?', (new_stored, user_id))
                         conn.commit()
                     body = html_header('Wachtwoord gewijzigd', True, username, user_id)
-                    body += f'<h2 class="mt-4">&#128273; Wachtwoord wijzigen</h2>'
-                    body += '<div class="alert" style="background:#e8f5e9;color:#2e7d32;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.75rem;">&#10003; Wachtwoord succesvol gewijzigd.</div>'
+                    body += f'<h2 class="mt-4"><i data-lucide="key-round" class="icon"></i> Wachtwoord wijzigen</h2>'
+                    body += '<div class="alert" style="background:#e8f5e9;color:#2e7d32;border-radius:6px;padding:0.6rem 1rem;margin-bottom:0.75rem;"><i data-lucide="check" class="icon"></i> Wachtwoord succesvol gewijzigd.</div>'
                     body += html_footer()
                     self._send_html(body)
             else:
                 body = html_header('Wachtwoord wijzigen', True, username, user_id)
-                body += f'<h2 class="mt-4">&#128273; Wachtwoord wijzigen</h2>'
+                body += f'<h2 class="mt-4"><i data-lucide="key-round" class="icon"></i> Wachtwoord wijzigen</h2>'
                 body += self._render_password_form(user_id)
                 body += html_footer()
                 self._send_html(body)
@@ -2466,7 +2495,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 customer_obj = self.get_customer(cid_int)
                 customer_name = customer_obj['name'] if customer_obj else f'Klant {cid_int}'
                 body = html_header('Interactie bewerken', True, username, user_id)
-                body += f'<h2 class="mt-4">&#9998; Interactie bewerken — {html.escape(customer_name)}</h2>'
+                body += f'<h2 class="mt-4"><i data-lucide="pencil" class="icon"></i> Interactie bewerken — {html.escape(customer_name)}</h2>'
                 current_type = inter['interaction_type'] or ''
                 current_note = inter['note'] or ''
                 current_date = inter['contact_date'] or inter['created_at'][:10]
@@ -2567,7 +2596,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 all_users = cur.fetchall()
             today_iso = datetime.date.today().isoformat()
             body = html_header('Taken zoeken', True, username, user_id)
-            body += '<h2 class="mt-4">&#128269; Taken zoeken</h2>'
+            body += '<h2 class="mt-4"><i data-lucide="search" class="icon"></i> Taken zoeken</h2>'
             user_opts = '<option value="">Alle gebruikers</option>'
             for u in all_users:
                 sel = 'selected' if filter_uid == u['id'] else ''
@@ -2594,10 +2623,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             if is_admin(user_id):
                 body += '''<div style="margin-top:0.75rem;display:flex;gap:0.5rem;justify-content:flex-end;flex-wrap:wrap;">
                     <form method="POST" action="/tasks/delete-all-open" onsubmit="return confirm('Alle openstaande taken verwijderen? Dit kan niet ongedaan worden.');">
-                        <button type="submit" style="background:#dc3545;color:#fff;border:none;border-radius:4px;padding:0.35rem 1rem;font-size:0.85rem;cursor:pointer;">&#128465; Alle open taken verwijderen</button>
+                        <button type="submit" style="background:#dc3545;color:#fff;border:none;border-radius:4px;padding:0.35rem 1rem;font-size:0.85rem;cursor:pointer;"><i data-lucide="trash-2" class="icon"></i> Alle open taken verwijderen</button>
                     </form>
                     <form method="POST" action="/tasks/delete-overdue" onsubmit="return confirm('Alle verlopen taken verwijderen? Dit kan niet ongedaan worden.');">
-                        <button type="submit" style="background:#b71c1c;color:#fff;border:none;border-radius:4px;padding:0.35rem 1rem;font-size:0.85rem;cursor:pointer;">&#128465; Verlopen taken verwijderen</button>
+                        <button type="submit" style="background:#b71c1c;color:#fff;border:none;border-radius:4px;padding:0.35rem 1rem;font-size:0.85rem;cursor:pointer;"><i data-lucide="trash-2" class="icon"></i> Verlopen taken verwijderen</button>
                     </form>
                 </div>'''
             body += f'<div class="card"><div class="section-title">Resultaten ({len(results)})</div>'
@@ -2608,7 +2637,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     date_color = '#dc3545' if is_overdue else '#555'
                     status_badge = '<span style="background:#e8f5e9;color:#388e3c;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.8rem;">Voltooid</span>' if t['status'] == 'completed' else '<span style="background:#fff8e1;color:#f57f17;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.8rem;">Open</span>'
                     desc = f'<br><small style="color:#888;">{html.escape(t["description"])}</small>' if t['description'] else ''
-                    resolve_btn = f' <a href="/tasks/resolve?id={t["task_id"]}&from=tasks/search" style="background:#198754;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.75rem;text-decoration:none;">&#10003;</a>' if t['status'] == 'open' else ''
+                    resolve_btn = f' <a href="/tasks/resolve?id={t["task_id"]}&from=tasks/search" style="background:#198754;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.75rem;text-decoration:none;"><i data-lucide="check" class="icon"></i></a>' if t['status'] == 'open' else ''
                     body += f'''<tr>
                         <td>{html.escape(t["title"])}{desc}{resolve_btn}</td>
                         <td><a href="/customers/view?id={t["customer_id"]}" style="color:#5C7A5A;">{html.escape(t["customer_name"])}</a></td>
@@ -2739,7 +2768,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 all_users = cur.fetchall()
             # Build page
             body = html_header('Archief voltooide taken', True, username, user_id)
-            body += '<h2 class="mt-4">&#10003; Archief voltooide taken</h2>'
+            body += '<h2 class="mt-4"><i data-lucide="check" class="icon"></i> Archief voltooide taken</h2>'
             # Filter bar
             user_opts = '<option value="">Alle gebruikers</option>'
             for u in all_users:
@@ -2755,7 +2784,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <a href="/tasks/archive" style="color:#5C7A5A;font-size:0.9rem;">Wis filter</a>
                 </form>
             </div>'''
-            body += f'<div class="card"><div class="section-title">Voltooide taken ({len(done_tasks)}) <a href="/tasks/export" style="float:right;font-size:0.85rem;color:#5C7A5A;font-weight:normal;">&#8659; Exporteer alle taken (CSV)</a></div>'
+            body += f'<div class="card"><div class="section-title">Voltooide taken ({len(done_tasks)}) <a href="/tasks/export" style="float:right;font-size:0.85rem;color:#5C7A5A;font-weight:normal;"><i data-lucide="download" class="icon"></i> Exporteer alle taken (CSV)</a></div>'
             if done_tasks:
                 body += '<table><thead><tr><th>Taak</th><th>Klant</th><th>Toegewezen aan</th><th>Vervaldatum</th><th>Afgerond op</th></tr></thead><tbody>'
                 for t in done_tasks:
@@ -3930,7 +3959,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 phase_opts = ''.join(f'<option value="{p}" {"selected" if person["phase"]==p else ""}>{phase_labels[p]}</option>' for p in valid_phases)
                 body = html_header('Persoon bewerken', True, username, user_id)
                 body += self._gov_nav('board', user_id)
-                body += f'<h2 class="mt-4">&#9998; Persoon bewerken</h2>'
+                body += f'<h2 class="mt-4"><i data-lucide="pencil" class="icon"></i> Persoon bewerken</h2>'
                 body += f'''<div class="card" style="max-width:560px;">
                     <form method="POST" action="/gov/persons/edit?id={person["id"]}">
                         <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Naam</label><br>
@@ -4213,7 +4242,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 phase_opts = ''.join(f'<option value="{p}" {"selected" if card["phase"]==p else ""}>{phase_labels[p]}</option>' for p in valid_phases)
                 body = html_header('Kaart bewerken', True, username, user_id)
                 body += self._gov_nav('cards', user_id)
-                body += f'<h2 class="mt-4">&#9998; Kaart bewerken</h2>'
+                body += f'<h2 class="mt-4"><i data-lucide="pencil" class="icon"></i> Kaart bewerken</h2>'
                 cur_pt = card['project_type'] or ''
                 pt_opts_edit = '<option value="" ' + ('selected' if not cur_pt else '') + '>Alle typen</option>' + ''.join(f'<option value="{t}" {"selected" if cur_pt==t else ""}>{t.capitalize()}</option>' for t in ['communicatie','werkveld','evenementen','onderwijs'])
                 body += f'''<div class="card" style="max-width:560px;">
@@ -4421,7 +4450,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             cur.execute('SELECT id, username FROM users WHERE id != ? ORDER BY username', (user_id,))
             all_users = cur.fetchall()
         body = html_header('Berichten', True, username, user_id)
-        body += '<h2 class="mt-4">&#128172; Berichten</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="message-circle" class="icon"></i> Berichten</h2>'
         user_opts = ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users)
         body += f'''<div style="margin-bottom:1rem;">
             <form method="GET" action="/messages/conversation" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
@@ -4429,7 +4458,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <option value="">— Nieuw gesprek met... —</option>
                     {user_opts}
                 </select>
-                <button type="submit" class="btn btn-primary">&#43; Start gesprek</button>
+                <button type="submit" class="btn btn-primary">+ Start gesprek</button>
             </form>
         </div>'''
         if convs:
@@ -4475,7 +4504,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             msgs = cur.fetchall()
         other_name = other['username']
         body = html_header(f'Gesprek met {other_name}', True, username, user_id)
-        body += f'<div style="display:flex;align-items:center;gap:0.75rem;margin-top:1.5rem;margin-bottom:1rem;"><a href="/messages" style="color:#5C7A5A;">&#8592; Terug</a><h2 style="margin:0;">&#128172; {html.escape(other_name)}</h2></div>'
+        body += f'<div style="display:flex;align-items:center;gap:0.75rem;margin-top:1.5rem;margin-bottom:1rem;"><a href="/messages" style="color:#5C7A5A;"><i data-lucide="arrow-left" class="icon"></i> Terug</a><h2 style="margin:0;"><i data-lucide="message-circle" class="icon"></i> {html.escape(other_name)}</h2></div>'
         body += '<div id="chat-box" style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.2rem;max-height:65vh;overflow-y:auto;padding:0.5rem;">'
         for m in msgs:
             is_me = m['sender_id'] == user_id
@@ -4494,13 +4523,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 </div>
                 <div style="font-size:0.75rem;color:#aaa;margin-top:0.15rem;display:flex;gap:0.5rem;align-items:center;">
                     {(m["created_at"] or "")[:16]}
-                    <a href="#" onclick="setReply({m["id"]},'{safe_sender}','{safe_content}');return false;" style="color:#5C7A5A;font-size:0.75rem;">&#8617; Reply</a>
+                    <a href="#" onclick="setReply({m["id"]},'{safe_sender}','{safe_content}');return false;" style="color:#5C7A5A;font-size:0.75rem;"><i data-lucide="corner-down-left" class="icon"></i> Reply</a>
                 </div>
             </div>'''
         body += '</div>'
         body += f'''<div id="reply-preview" style="display:none;background:#EDF3EC;border-left:4px solid #5C7A5A;padding:0.4rem 0.8rem;border-radius:4px;margin-bottom:0.5rem;font-size:0.85rem;">
             <span id="reply-preview-text" style="flex:1;"></span>
-            <button onclick="clearReply()" style="float:right;background:none;border:none;cursor:pointer;color:#5C7A5A;font-size:1rem;">&#10005;</button>
+            <button onclick="clearReply()" style="float:right;background:none;border:none;cursor:pointer;color:#5C7A5A;font-size:1rem;"><i data-lucide="x" class="icon"></i></button>
         </div>
         <form method="POST" action="/messages/conversation?with={other_id}" style="display:flex;gap:0.5rem;align-items:flex-end;">
             <input type="hidden" name="reply_to" id="reply-to-input" value="">
@@ -4609,7 +4638,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             body += f'<a href="/customers?verbinding={urllib.parse.quote(vb_key)}" style="flex:1;min-width:130px;text-decoration:none;"><div class="card" style="text-align:center;padding:0.75rem;background:{vb_bg};border-left:4px solid {vb_color};"><div style="font-size:1.8rem;font-weight:bold;color:{vb_color};">{cnt}</div><div style="font-size:0.85rem;color:#555;">{vb_key.capitalize()}</div></div></a>'
         body += '</div>'
         # Per-user stats table — collapsible
-        body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128200; Statistieken per gebruiker (' + this_month + ')</summary>'
+        body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);"><i data-lucide="trending-up" class="icon"></i> Statistieken per gebruiker (' + this_month + ')</summary>'
         body += '<div class="card" style="margin-top:0.25rem;">'
         body += '<table><thead><tr><th>Gebruiker</th><th>Open taken</th><th>Verlopen taken</th><th>Interacties deze maand</th><th>Ingevoerde klanten</th></tr></thead><tbody>'
         for us in user_task_stats:
@@ -4635,12 +4664,12 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 overdue_label = ' <span style="background:#dc3545;color:#fff;font-size:0.75rem;border-radius:3px;padding:0.1rem 0.4rem;">verlopen</span>' if is_overdue else ''
                 cust_link = f"<a href='/customers/view?id={t['customer_id']}' style='color:#5C7A5A;font-weight:bold;'>{html.escape(t['customer_name'])}</a>"
                 assigned_to = html.escape(t['assigned_to']) if t['assigned_to'] else ''
-                resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=dashboard' style='float:right;background:#198754;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;'>&#10003; Resolve</a>"
-                tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'>{resolve_btn}{html.escape(t['title'])}{overdue_label}<br>{cust_link} &middot; <small style='color:#888;'>{assigned_to}</small> &middot; <small style='color:{date_color};'>&#128197; {date_str}</small></div>"
+                resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=dashboard' style='float:right;background:#198754;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;'><i data-lucide="check" class="icon"></i> Resolve</a>"
+                tasks_html += f"<div style='border-bottom:1px solid #eee; padding:0.5rem 0;'>{resolve_btn}{html.escape(t['title'])}{overdue_label}<br>{cust_link} &middot; <small style='color:#888;'>{assigned_to}</small> &middot; <small style='color:{date_color};'><i data-lucide="calendar" class="icon"></i> {date_str}</small></div>"
         else:
             tasks_html = '<p>Geen openstaande taken.</p>'
         body += f'''<div class="card">
-            <div class="section-title">Openstaande taken (komende 14 dagen + verlopen) <a href="/tasks/archive" style="float:right;font-size:0.85rem;color:#5C7A5A;font-weight:normal;">&#128451; Archief voltooide taken</a></div>
+            <div class="section-title">Openstaande taken (komende 14 dagen + verlopen) <a href="/tasks/archive" style="float:right;font-size:0.85rem;color:#5C7A5A;font-weight:normal;"><i data-lucide="archive" class="icon"></i> Archief voltooide taken</a></div>
             {tasks_html}
         </div>'''
         # Recent notes
@@ -4685,13 +4714,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     else:
                         toggle_btn = f'<a href="/users/toggle-admin?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#5C7A5A;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} admin maken?\');">Maak admin</a>'
                     if is_comm_user:
-                        comm_btn = f'<a href="/users/toggle-comm?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Comm-team verwijderen van {html.escape(user["username"])}?\');">&#128101; Comm uit</a>'
+                        comm_btn = f'<a href="/users/toggle-comm?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Comm-team verwijderen van {html.escape(user["username"])}?\');"><i data-lucide="users" class="icon"></i> Comm uit</a>'
                     else:
-                        comm_btn = f'<a href="/users/toggle-comm?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#7b1fa2;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} aan comm-team toevoegen?\');">&#128101; Comm aan</a>'
+                        comm_btn = f'<a href="/users/toggle-comm?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#7b1fa2;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} aan comm-team toevoegen?\');"><i data-lucide="users" class="icon"></i> Comm aan</a>'
                     if is_gov_user:
-                        gov_btn = f'<a href="/users/toggle-governance?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Governance verwijderen van {html.escape(user["username"])}?\');">&#9881; Gov uit</a>'
+                        gov_btn = f'<a href="/users/toggle-governance?id={user["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.5rem;" onclick="return confirm(\'Governance verwijderen van {html.escape(user["username"])}?\');"><i data-lucide="settings" class="icon"></i> Gov uit</a>'
                     else:
-                        gov_btn = f'<a href="/users/toggle-governance?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#1565c0;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} aan governance toevoegen?\');">&#9881; Gov aan</a>'
+                        gov_btn = f'<a href="/users/toggle-governance?id={user["id"]}" class="btn btn-sm" style="margin-left:0.5rem;background:#1565c0;color:#fff;" onclick="return confirm(\'{html.escape(user["username"])} aan governance toevoegen?\');"><i data-lucide="settings" class="icon"></i> Gov aan</a>'
                 else:
                     toggle_btn = ''
                     comm_btn = ''
@@ -4700,8 +4729,8 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <div>
                         <strong>{html.escape(user['username'])}</strong> ({html.escape(user['email'])})
                         {'<span style="font-size:0.75rem;background:#5C7A5A;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">admin</span>' if is_admin_user else ''}
-                        {'<span style="font-size:0.75rem;background:#7b1fa2;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">&#128101; comm</span>' if is_comm_user else ''}
-                        {'<span style="font-size:0.75rem;background:#1565c0;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">&#9881; gov</span>' if is_gov_user else ''}
+                        {'<span style="font-size:0.75rem;background:#7b1fa2;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;"><i data-lucide="users" class="icon"></i> comm</span>' if is_comm_user else ''}
+                        {'<span style="font-size:0.75rem;background:#1565c0;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;"><i data-lucide="settings" class="icon"></i> gov</span>' if is_gov_user else ''}
                         <div style="font-size:0.8rem; color:#666;">Aangemaakt op {(user['created_at'] or '')[:10]}</div>
                     </div>
                     <div>
@@ -4765,7 +4794,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         error_html = f'<div style="color:#dc3545;margin-bottom:0.75rem;">{html.escape(error)}</div>' if error else ''
         body = html_header('Taak afronden', True, username, user_id)
         body += f'''<div class="container"><div class="card" style="max-width:560px;margin:2rem auto;">
-        <h3 style="margin-top:0;">&#10003; Taak afronden</h3>
+        <h3 style="margin-top:0;"><i data-lucide="check" class="icon"></i> Taak afronden</h3>
         {error_html}
         <p><strong>{html.escape(task["title"])}</strong><br>
         <small style="color:#666;">Klant: <a href="/customers/view?id={task["customer_id"]}" style="color:#5C7A5A;">{html.escape(task["customer_name"])}</a></small></p>
@@ -4788,7 +4817,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 <label style="font-weight:bold;">Notitie (optioneel)</label><br>
                 <textarea name="note" class="form-control" rows="3" placeholder="Wat is er besproken?"></textarea>
             </div>
-            <button type="submit" class="btn btn-primary">&#10003; Afronden &amp; interactie opslaan</button>
+            <button type="submit" class="btn btn-primary"><i data-lucide="check" class="icon"></i> Afronden &amp; interactie opslaan</button>
             <a href="/{html.escape(from_page)}" class="btn btn-secondary" style="margin-left:0.5rem;">Annuleren</a>
         </form>
         </div></div>'''
@@ -4882,7 +4911,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             cur.execute("SELECT COUNT(*) FROM messages WHERE recipient_id=? AND is_read=0", (pid,))
             msg_unread_total = cur.fetchone()[0]
         body = html_header(f'Profiel: {profile_user["username"]}', True, viewer_username, viewer_id)
-        body += f'<h2 class="mt-4">&#128100; {html.escape(profile_user["username"])}</h2>'
+        body += f'<h2 class="mt-4"><i data-lucide="user" class="icon"></i> {html.escape(profile_user["username"])}</h2>'
         body += f'<p style="color:#666;">{html.escape(profile_user["email"])} &middot; Account aangemaakt op {profile_user["created_at"][:10]}</p>'
         # Stats row
         overdue = [t for t in open_tasks if t['due_date'] and t['due_date'] < datetime.date.today().isoformat()]
@@ -4912,14 +4941,14 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 is_overdue = t['due_date'] and t['due_date'] < datetime.date.today().isoformat()
                 due_color = '#dc3545' if is_overdue else '#555'
                 desc = f'<br><small style="color:#666;">{html.escape(t["description"])}</small>' if t['description'] else ''
-                resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=users/profile' style='background:#198754;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;margin-left:0.5rem;'>&#10003; Resolve</a>"
+                resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=users/profile' style='background:#198754;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;margin-left:0.5rem;'><i data-lucide="check" class="icon"></i> Resolve</a>"
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.5rem 0;">
                     <a href="/customers/view?id={t['customer_id']}" style="color:#5C7A5A;font-weight:bold;">{html.escape(t['customer_name'])}</a>
                     &mdash; {html.escape(t['title'])}{desc}
-                    <span style="float:right;color:{due_color};font-size:0.85rem;">&#128197; {due} {resolve_btn}</span>
+                    <span style="float:right;color:{due_color};font-size:0.85rem;"><i data-lucide="calendar" class="icon"></i> {due} {resolve_btn}</span>
                 </div>'''
         else:
-            body += '<p style="color:#388e3c;">Geen open taken. &#10003;</p>'
+            body += '<p style="color:#388e3c;">Geen open taken. <i data-lucide="check" class="icon"></i></p>'
         body += '</div>'
         # Linked customers
         body += '<div class="card"><div class="section-title">Gekoppelde klanten</div>'
@@ -4954,7 +4983,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             body += '<p>Nog geen interacties geregistreerd.</p>'
         body += '</div>'
         # Notes by this user (collapsible)
-        body += '<details style="margin-bottom:1rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128221; Toegevoegde notities (' + str(len(user_notes)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
+        body += '<details style="margin-bottom:1rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);"><i data-lucide="notebook-text" class="icon"></i> Toegevoegde notities (' + str(len(user_notes)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
         if user_notes:
             for n in user_notes:
                 content_val = n['content'] or ''
@@ -4968,7 +4997,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             body += '<p>Nog geen notities toegevoegd.</p>'
         body += '</div></details>'
         # Customers added by this user (collapsible)
-        body += '<details style="margin-bottom:1rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#127970; Toegevoegde klanten (' + str(len(added_customers)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
+        body += '<details style="margin-bottom:1rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);"><i data-lucide="building-2" class="icon"></i> Toegevoegde klanten (' + str(len(added_customers)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
         if added_customers:
             for c in added_customers:
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">
@@ -4981,17 +5010,17 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         body += '</div></details>'
         # Completed tasks (collapsed summary)
         if done_tasks:
-            body += '<details><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#10003; Voltooide taken (' + str(len(done_tasks)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
+            body += '<details><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);"><i data-lucide="check" class="icon"></i> Voltooide taken (' + str(len(done_tasks)) + ')</summary><div class="card" style="margin-top:0.25rem;">'
             for t in done_tasks:
                 body += f'''<div style="border-bottom:1px solid #eee;padding:0.4rem 0;color:#888;">
-                    &#10003; {html.escape(t['title'])} &middot;
+                    <i data-lucide="check" class="icon"></i> {html.escape(t['title'])} &middot;
                     <a href="/customers/view?id={t['customer_id']}" style="color:#aaa;">{html.escape(t['customer_name'])}</a>
                 </div>'''
             body += '</div></details>'
         # Berichten sectie (alleen op eigen profiel)
         if viewer_id == pid:
             unread_badge = f' <span style="background:#5C7A5A;color:#fff;border-radius:50%;font-size:0.75rem;font-weight:bold;min-width:20px;height:20px;line-height:20px;text-align:center;display:inline-block;margin-left:0.3rem;">{msg_unread_total}</span>' if msg_unread_total else ''
-            body += f'<div class="card"><div class="section-title">&#128172; Berichten{unread_badge} <a href="/messages" style="float:right;font-size:0.85rem;font-weight:normal;color:#5C7A5A;">Alle gesprekken</a></div>'
+            body += f'<div class="card"><div class="section-title"><i data-lucide="message-circle" class="icon"></i> Berichten{unread_badge} <a href="/messages" style="float:right;font-size:0.85rem;font-weight:normal;color:#5C7A5A;">Alle gesprekken</a></div>'
             if msg_convs:
                 for c in msg_convs:
                     unread = c['unread'] or 0
@@ -5020,7 +5049,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     <option value="">— Nieuw gesprek... —</option>
                     {user_opts}
                 </select>
-                <button type="submit" class="btn btn-primary btn-sm">&#43; Start</button>
+                <button type="submit" class="btn btn-primary btn-sm">+ Start</button>
             </form>'''
             body += '</div>'
         body += html_footer()
@@ -5235,7 +5264,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         if is_admin(uid):
             admin_user_opts = '<option value="">-- Kies gebruiker --</option>' + ''.join(f'<option value="{u["id"]}">{html.escape(u["username"])}</option>' for u in all_users_bulk)
             body += f'''<div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:0.5rem 1rem;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                <span style="font-size:0.85rem;color:#555;">&#128279; Koppel lege accountmanagers aan:</span>
+                <span style="font-size:0.85rem;color:#555;"><i data-lucide="link-2" class="icon"></i> Koppel lege accountmanagers aan:</span>
                 <form method="POST" action="/customers/bulk-link-empty" style="display:flex;gap:0.5rem;align-items:center;" onsubmit="return confirm('Alle relaties zonder accountmanager koppelen aan de gekozen gebruiker?');">
                     <select name="user_id" style="padding:0.25rem 0.5rem;border:1px solid #ced4da;border-radius:4px;font-size:0.85rem;" required>{admin_user_opts}</select>
                     <button type="submit" class="btn btn-sm btn-primary">Koppelen</button>
@@ -5333,7 +5362,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         body += '</tbody></table></form>'
         body += '''<div id="bulk-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
     <div style="background:#fff;border-radius:10px;padding:2rem 2.5rem;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.3);min-width:280px;">
-        <div style="font-size:2rem;margin-bottom:0.5rem;">&#9881;</div>
+        <div style="font-size:2rem;margin-bottom:0.5rem;"><i data-lucide="settings" class="icon"></i></div>
         <div style="font-size:1.1rem;font-weight:bold;margin-bottom:0.5rem;" id="overlay-title">Bezig...</div>
         <div style="color:#666;font-size:0.9rem;margin-bottom:1rem;" id="overlay-msg">Even geduld, de server verwerkt je actie...</div>
         <div style="background:#eee;border-radius:4px;height:8px;overflow:hidden;">
@@ -5658,10 +5687,10 @@ function bulkAction(action){
         actions_html = []
         # Provide call and email links only if data is present
         if customer['phone']:
-            actions_html.append(f"<a href='tel:{html.escape(customer['phone'])}'><span class='icon'>&#128222;</span>Bel</a>")
-        actions_html.append(f"<a href='mailto:{html.escape(customer['email'])}'><span class='icon'>&#9993;</span>Email</a>")
+            actions_html.append(f"<a href='tel:{html.escape(customer['phone'])}'><span class='icon'><i data-lucide="phone" class="icon"></i></span>Bel</a>")
+        actions_html.append(f"<a href='mailto:{html.escape(customer['email'])}'><span class='icon'><i data-lucide="mail" class="icon"></i></span>Email</a>")
         # The message action is a placeholder; adapt as needed
-        actions_html.append(f"<a href='mailto:{html.escape(customer['email'])}'><span class='icon'>&#128172;</span>Bericht</a>")
+        actions_html.append(f"<a href='mailto:{html.escape(customer['email'])}'><span class='icon'><i data-lucide="message-circle" class="icon"></i></span>Bericht</a>")
         actions_block = ' '.join(actions_html)
         # Build custom fields HTML
         custom_html = ''
@@ -5672,7 +5701,7 @@ function bulkAction(action){
                 data = json.loads(customer['custom_fields'])
                 if isinstance(data, dict):
                     for key, value in data.items():
-                        custom_html += f"<p><span class='icon'>&#128196;</span>{html.escape(str(key).capitalize())}: {html.escape(str(value))}</p>"
+                        custom_html += f"<p><span class='icon'><i data-lucide="file-text" class="icon"></i></span>{html.escape(str(key).capitalize())}: {html.escape(str(value))}</p>"
                 else:
                     # If not dict, just show raw
                     custom_html = f"<p>{html.escape(str(data))}</p>"
@@ -5697,7 +5726,7 @@ function bulkAction(action){
         # ----- Contact details card -----
         tags_html = ''
         if customer.get('tags'):
-            tags_html = '<p><span class="icon">&#128279;</span>' + ', '.join([html.escape(tag.strip()) for tag in customer['tags'].split(',')]) + '</p>'
+            tags_html = '<p><span class="icon"><i data-lucide="link-2" class="icon"></i></span>' + ', '.join([html.escape(tag.strip()) for tag in customer['tags'].split(',')]) + '</p>'
         # Determine creator and category for display
         creator_name = '-'
         try:
@@ -5719,41 +5748,41 @@ function bulkAction(action){
                     if lu:
                         names.append(html.escape(lu['username']))
                 if names:
-                    linked_users_html = '<p><span class="icon">&#128101;</span>Accountmanagers: ' + ', '.join(names) + '</p>'
+                    linked_users_html = '<p><span class="icon"><i data-lucide="users" class="icon"></i></span>Accountmanagers: ' + ', '.join(names) + '</p>'
         except Exception:
             pass
         body += f'''<div class="card">
             <div class="section-title">Contactgegevens</div>
-            <p><span class="icon">&#9993;</span>{html.escape(customer['email'])}</p>
-            {f'<p><span class="icon">&#128222;</span>{html.escape(customer["phone"])} </p>' if customer['phone'] else ''}
-            {f'<p><span class="icon">&#127968;</span>{html.escape(customer["address"])} </p>' if customer['address'] else ''}
-            {f'<p><span class="icon">&#128188;</span>{html.escape(customer["company"])} </p>' if customer['company'] else ''}
+            <p><span class="icon"><i data-lucide="mail" class="icon"></i></span>{html.escape(customer['email'])}</p>
+            {f'<p><span class="icon"><i data-lucide="phone" class="icon"></i></span>{html.escape(customer["phone"])} </p>' if customer['phone'] else ''}
+            {f'<p><span class="icon"><i data-lucide="home" class="icon"></i></span>{html.escape(customer["address"])} </p>' if customer['address'] else ''}
+            {f'<p><span class="icon"><i data-lucide="briefcase" class="icon"></i></span>{html.escape(customer["company"])} </p>' if customer['company'] else ''}
             {tags_html}
-            <p><span class="icon">&#128221;</span>{'Rol: ' + html.escape(customer.get('role') or '-') if (customer.get('relation_type') or 'extern') == 'intern' else 'Type: ' + category_display} &middot; {(customer.get('relation_type') or 'extern').capitalize()}</p>
-            <p><span class="icon">&#128100;</span>Toegevoegd door: {creator_name}</p>
-            <p><span class="icon">&#128197;</span>Aangemaakt op {customer['created_at']}</p>
+            <p><span class="icon"><i data-lucide="notebook-text" class="icon"></i></span>{'Rol: ' + html.escape(customer.get('role') or '-') if (customer.get('relation_type') or 'extern') == 'intern' else 'Type: ' + category_display} &middot; {(customer.get('relation_type') or 'extern').capitalize()}</p>
+            <p><span class="icon"><i data-lucide="user" class="icon"></i></span>Toegevoegd door: {creator_name}</p>
+            <p><span class="icon"><i data-lucide="calendar" class="icon"></i></span>Aangemaakt op {customer['created_at']}</p>
             {linked_users_html}
             {custom_html}
         </div>'''
         # ----- Activity timeline (collapsible) -----
-        type_icon = {'call': '📞', 'email': '📧', 'message': '💬', 'meeting': '🤝'}
+        type_icon = {'call': '<i data-lucide="phone" class="icon"></i>', 'email': '<i data-lucide="mail" class="icon"></i>', 'message': '<i data-lucide="message-circle" class="icon"></i>', 'meeting': '<i data-lucide="handshake" class="icon"></i>'}
         type_label_map = {'call': 'Bellen', 'email': 'E-mail', 'message': 'Bericht', 'meeting': 'Meeting'}
         timeline_items = []
         for t in tasks:
             date_val = t['due_date'] or t['created_at'][:10]
             status_col = '#388e3c' if t['status'] == 'completed' else '#f57f17'
-            timeline_items.append((date_val, f'<span style="color:{status_col};">📋</span> <strong>{html.escape(t["title"])}</strong> <small style="color:#888;">(Taak · {html.escape(t["author"])} · {date_val})</small>'))
+            timeline_items.append((date_val, f'<span style="color:{status_col};"><i data-lucide="clipboard-list" class="icon"></i></span> <strong>{html.escape(t["title"])}</strong> <small style="color:#888;">(Taak · {html.escape(t["author"])} · {date_val})</small>'))
         for n in notes:
-            timeline_items.append((n['created_at'][:10], f'📝 {html.escape((n["content"][:80] + "…") if len(n["content"]) > 80 else n["content"])} <small style="color:#888;">(Notitie · {html.escape(n["author"] or "")} · {n["created_at"][:10]})</small>'))
+            timeline_items.append((n['created_at'][:10], f'<i data-lucide="notebook-text" class="icon"></i> {html.escape((n["content"][:80] + "…") if len(n["content"]) > 80 else n["content"])} <small style="color:#888;">(Notitie · {html.escape(n["author"] or "")} · {n["created_at"][:10]})</small>'))
         for i in interactions:
             d = i['contact_date'] or i['created_at'][:10]
             lbl = type_label_map.get(i['interaction_type'], i['interaction_type'])
-            icon = type_icon.get(i['interaction_type'], '🔔')
+            icon = type_icon.get(i['interaction_type'], '<i data-lucide="bell" class="icon"></i>')
             note_part = f' — {html.escape(i["note"])}' if i['note'] else ''
             timeline_items.append((d, f'{icon} <strong>{lbl}</strong>{note_part} <small style="color:#888;">(Interactie · {html.escape(i["author"])} · {d})</small>'))
         timeline_items.sort(key=lambda x: x[0], reverse=True)
         tl_html = ''.join(f'<div style="border-bottom:1px solid #eee;padding:0.4rem 0;">{item}</div>' for _, item in timeline_items) if timeline_items else '<p style="color:#888;">Nog geen activiteit.</p>'
-        body += f'<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">📋 Activiteitenoverzicht ({len(timeline_items)})</summary><div class="card" style="margin-top:0.25rem;">{tl_html}</div></details>'
+        body += f'<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);"><i data-lucide="clipboard-list" class="icon"></i> Activiteitenoverzicht ({len(timeline_items)})</summary><div class="card" style="margin-top:0.25rem;">{tl_html}</div></details>'
         # ----- Tasks card -----
         # Show task error if present
         tasks_section = ''
@@ -5899,16 +5928,16 @@ function bulkAction(action){
     def _comm_nav(self, active: str, user_id: int) -> str:
         """Return navigation tabs for the comm dashboard."""
         tabs = [
-            ('/comm/board', '&#9776; Board', 'board'),
-            ('/comm/goals', '&#127945; Doelen', 'goals'),
-            ('/comm/week', '&#128197; Week', 'week'),
-            ('/comm/overview', '&#128203; Overzicht', 'overview'),
-            ('/comm/events-gov', '&#127937; Events Gov', 'events-gov'),
-            (f'/comm/profile?id={user_id}', '&#128100; Mijn profiel', 'profile'),
-            ('/comm/search', '&#128269; Zoeken', 'search'),
-            ('/comm/dates', '&#128197; Datums', 'dates'),
-            ('/comm/content', '&#128240; Content', 'content'),
-            ('/comm/archived', '&#128452; Archief', 'archived'),
+            ('/comm/board', '<i data-lucide="menu" class="icon"></i> Board', 'board'),
+            ('/comm/goals', '<i data-lucide="target" class="icon"></i> Doelen', 'goals'),
+            ('/comm/week', '<i data-lucide="calendar" class="icon"></i> Week', 'week'),
+            ('/comm/overview', '<i data-lucide="clipboard-list" class="icon"></i> Overzicht', 'overview'),
+            ('/comm/events-gov', '<i data-lucide="flag" class="icon"></i> Events Gov', 'events-gov'),
+            (f'/comm/profile?id={user_id}', '<i data-lucide="user" class="icon"></i> Mijn profiel', 'profile'),
+            ('/comm/search', '<i data-lucide="search" class="icon"></i> Zoeken', 'search'),
+            ('/comm/dates', '<i data-lucide="calendar" class="icon"></i> Datums', 'dates'),
+            ('/comm/content', '<i data-lucide="newspaper" class="icon"></i> Content', 'content'),
+            ('/comm/archived', '<i data-lucide="archive" class="icon"></i> Archief', 'archived'),
         ]
         parts = []
         for href, label, key in tabs:
@@ -5987,7 +6016,7 @@ function bulkAction(action){
         board_content_klaar   = [c for c in board_content if c['board_status'] == 'klaar'   and (not user_filter or c.get('assigned_to') == user_filter)]
 
         body = html_header('Communicatie Board', True, username, user_id)
-        body += '<h2 class="mt-4">&#128101; Communicatie Dashboard</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="users" class="icon"></i> Communicatie Dashboard</h2>'
         body += self._comm_nav('board', user_id)
 
         # User filter pills
@@ -5999,7 +6028,7 @@ function bulkAction(action){
             active = user_filter == m['id']
             pill_style = 'background:#5C7A5A;color:#fff;' if active else 'background:#EDF3EC;color:#3d5c3b;'
             href = '/comm/board' if active else f'/comm/board?user_filter={m["id"]}'
-            body += f'<a href="{href}" style="text-decoration:none;border-radius:14px;padding:0.25rem 0.75rem;font-size:0.82rem;{pill_style}">&#128100; {html.escape(m["username"])}</a>'
+            body += f'<a href="{href}" style="text-decoration:none;border-radius:14px;padding:0.25rem 0.75rem;font-size:0.82rem;{pill_style}"><i data-lucide="user" class="icon"></i> {html.escape(m["username"])}</a>'
         body += '</div>'
 
         # Reminder banner: overdue + due today + due within 48h
@@ -6008,16 +6037,16 @@ function bulkAction(action){
         today_tasks    = [t for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] == today_iso and t['assigned_to'] == user_id]
         soon_tasks     = [t for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] and today_iso < t['due_date'] <= deadline_48h and t['assigned_to'] == user_id]
         if overdue_tasks:
-            body += f'<div style="background:#ffebee;border-left:4px solid #dc3545;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#9888; <strong>{len(overdue_tasks)} verlopen {"taak" if len(overdue_tasks)==1 else "taken"} van jou:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in overdue_tasks[:5]) + ('...' if len(overdue_tasks) > 5 else '') + '</div>'
+            body += f'<div style="background:#ffebee;border-left:4px solid #dc3545;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;"><i data-lucide="alert-triangle" class="icon"></i> <strong>{len(overdue_tasks)} verlopen {"taak" if len(overdue_tasks)==1 else "taken"} van jou:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in overdue_tasks[:5]) + ('...' if len(overdue_tasks) > 5 else '') + '</div>'
         if today_tasks:
-            body += f'<div style="background:#fff8e1;border-left:4px solid #f57f17;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#128197; <strong>{len(today_tasks)} {"taak" if len(today_tasks)==1 else "taken"} van jou vervalt vandaag:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in today_tasks) + '</div>'
+            body += f'<div style="background:#fff8e1;border-left:4px solid #f57f17;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;"><i data-lucide="calendar" class="icon"></i> <strong>{len(today_tasks)} {"taak" if len(today_tasks)==1 else "taken"} van jou vervalt vandaag:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in today_tasks) + '</div>'
         if soon_tasks:
-            body += f'<div style="background:#fff3e0;border-left:4px solid #ef6c00;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#9201; <strong>Deadline binnen 48 uur:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em> <span style="font-size:0.8rem;color:#888;">({t["due_date"]})</span>' for t in soon_tasks) + '</div>'
+            body += f'<div style="background:#fff3e0;border-left:4px solid #ef6c00;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;"><i data-lucide="clock" class="icon"></i> <strong>Deadline binnen 48 uur:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em> <span style="font-size:0.8rem;color:#888;">({t["due_date"]})</span>' for t in soon_tasks) + '</div>'
 
         # Reminder notes banner (tasks with reminder_note assigned to me)
         reminders = [t for t in all_tasks if t['reminder_note'] and t['assigned_to'] == user_id and t['status'] not in ('klaar','archief')]
         if reminders:
-            body += '<div style="background:#e8f5e9;border-left:4px solid #388e3c;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;">&#128276; <strong>Herinneringen:</strong><ul style="margin:0.3rem 0 0 1.2rem;padding:0;">'
+            body += '<div style="background:#e8f5e9;border-left:4px solid #388e3c;border-radius:4px;padding:0.65rem 1rem;margin-bottom:0.75rem;"><i data-lucide="bell" class="icon"></i> <strong>Herinneringen:</strong><ul style="margin:0.3rem 0 0 1.2rem;padding:0;">'
             for r in reminders:
                 body += f'<li><em>{html.escape(r["title"])}</em>: {html.escape(r["reminder_note"])}</li>'
             body += '</ul></div>'
@@ -6035,7 +6064,7 @@ function bulkAction(action){
         body += '</div>'
 
         # Per-member stats (collapsible)
-        body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.55rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">&#128200; Statistieken per teamlid</summary>'
+        body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.55rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);"><i data-lucide="trending-up" class="icon"></i> Statistieken per teamlid</summary>'
         body += '<div class="card" style="margin-top:0.25rem;"><table><thead><tr><th>Teamlid</th><th>Open</th><th>Verlopen</th><th>Afgerond</th></tr></thead><tbody>'
         for m in member_stats:
             oc = '#dc3545' if (m['overdue_tasks'] or 0) > 0 else '#388e3c'
@@ -6048,7 +6077,7 @@ function bulkAction(action){
         goal_opts = '<option value="">Geen doel</option>' + ''.join(
             f'<option value="{g["id"]}">{html.escape(g["title"])}</option>' for g in active_goals)
         body += f'''<div class="card" style="margin-bottom:1rem;">
-            <div class="section-title">&#43; Nieuwe taak</div>
+            <div class="section-title">+ Nieuwe taak</div>
             <form method="POST" action="/comm/tasks/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
                 <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Taak *</label><br>
                     <input type="text" name="title" required placeholder="Wat moet er gebeuren?" class="form-control"></div>
@@ -6082,11 +6111,11 @@ function bulkAction(action){
             is_today   = t['due_date'] == today_iso
             date_color = '#dc3545' if is_overdue else ('#f57f17' if is_today else '#555')
             border_left = 'border-left:3px solid #dc3545;' if is_overdue else ('border-left:3px solid #f57f17;' if is_today else '')
-            date_html  = f'<div style="font-size:0.75rem;color:{date_color};">&#128197; {t["due_date"]}{"  &#9888;" if is_overdue else (" &#9889;" if is_today else "")}</div>' if t['due_date'] else ''
-            assigned   = f'<span style="font-size:0.75rem;color:#888;">&#128100; {html.escape(t["assigned_to_name"])}</span>' if t['assigned_to_name'] else ''
-            goal_badge = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"])}</span>' if t['goal_title'] else ''
+            date_html  = f'<div style="font-size:0.75rem;color:{date_color};"><i data-lucide="calendar" class="icon"></i> {t["due_date"]}{"  <i data-lucide="alert-triangle" class="icon"></i>" if is_overdue else (" <i data-lucide="zap" class="icon"></i>" if is_today else "")}</div>' if t['due_date'] else ''
+            assigned   = f'<span style="font-size:0.75rem;color:#888;"><i data-lucide="user" class="icon"></i> {html.escape(t["assigned_to_name"])}</span>' if t['assigned_to_name'] else ''
+            goal_badge = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;"><i data-lucide="target" class="icon"></i> {html.escape(t["goal_title"])}</span>' if t['goal_title'] else ''
             tags_html  = ''.join(f'<span style="font-size:0.7rem;background:#e3f2fd;color:#1565c0;border-radius:3px;padding:0.05rem 0.3rem;">{html.escape(tag.strip())}</span>' for tag in (t['tags'] or '').split(',') if tag.strip())
-            reminder   = f'<div style="font-size:0.75rem;color:#388e3c;margin-top:0.2rem;">&#128276; {html.escape(t["reminder_note"])}</div>' if t['reminder_note'] else ''
+            reminder   = f'<div style="font-size:0.75rem;color:#388e3c;margin-top:0.2rem;"><i data-lucide="bell" class="icon"></i> {html.escape(t["reminder_note"])}</div>' if t['reminder_note'] else ''
             prio_badge = self._priority_badge(t['priority'])
             desc       = f'<div style="font-size:0.78rem;color:#666;margin:0.2rem 0;">{html.escape(t["description"][:80])}{"…" if len(t["description"] or "")>80 else ""}</div>' if t['description'] else ''
 
@@ -6094,13 +6123,13 @@ function bulkAction(action){
                 move = f'<a href="/comm/tasks/move?id={t["id"]}&status=bezig" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:0.7rem;">→ Bezig</a>'
             elif t['status'] == 'bezig':
                 move = (f'<a href="/comm/tasks/move?id={t["id"]}&status=backlog" class="btn btn-sm btn-secondary" style="font-size:0.7rem;">← Back</a> '
-                        f'<a href="/comm/tasks/move?id={t["id"]}&status=klaar" class="btn btn-sm" style="background:#388e3c;color:#fff;font-size:0.7rem;">&#10003; Klaar</a>')
+                        f'<a href="/comm/tasks/move?id={t["id"]}&status=klaar" class="btn btn-sm" style="background:#388e3c;color:#fff;font-size:0.7rem;"><i data-lucide="check" class="icon"></i> Klaar</a>')
             else:
                 move = (f'<a href="/comm/tasks/move?id={t["id"]}&status=bezig" class="btn btn-sm btn-secondary" style="font-size:0.7rem;">↩ Heropenen</a> '
-                        f'<a href="/comm/tasks/archive-done" class="btn btn-sm btn-secondary" style="font-size:0.7rem;" onclick="return confirm(\'Alle afgeronde taken archiveren?\');">&#128452; Archiveer alle</a>')
+                        f'<a href="/comm/tasks/archive-done" class="btn btn-sm btn-secondary" style="font-size:0.7rem;" onclick="return confirm(\'Alle afgeronde taken archiveren?\');"><i data-lucide="archive" class="icon"></i> Archiveer alle</a>')
 
-            edit_btn = f'<a href="/comm/tasks/edit?id={t["id"]}" style="color:#1565c0;font-size:0.78rem;text-decoration:none;margin-right:0.4rem;">&#9998;</a>'
-            del_btn  = f'<a href="/comm/tasks/delete?id={t["id"]}" style="color:#dc3545;font-size:0.78rem;text-decoration:none;" onclick="return confirm(\'Taak verwijderen?\');">&#10005;</a>'
+            edit_btn = f'<a href="/comm/tasks/edit?id={t["id"]}" style="color:#1565c0;font-size:0.78rem;text-decoration:none;margin-right:0.4rem;"><i data-lucide="pencil" class="icon"></i></a>'
+            del_btn  = f'<a href="/comm/tasks/delete?id={t["id"]}" style="color:#dc3545;font-size:0.78rem;text-decoration:none;" onclick="return confirm(\'Taak verwijderen?\');"><i data-lucide="x" class="icon"></i></a>'
             return f'''<div class="comm-card" draggable="true" data-task-id="{t['id']}" data-status="{t['status']}" style="background:#fff;border-radius:6px;padding:0.6rem 0.7rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);cursor:grab;{border_left}">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;">
                     <div style="font-weight:bold;font-size:0.88rem;flex:1;">{html.escape(t["title"])}</div>
@@ -6115,15 +6144,15 @@ function bulkAction(action){
         def _content_board_card(c):
             platform_colors = {'instagram':'#e91e63','linkedin':'#0077b5','website':'#388e3c','email':'#f57f17','overig':'#7b1fa2'}
             col = platform_colors.get(c['platform'], '#7b1fa2')
-            asgn = f'<span style="font-size:0.72rem;color:#888;">&#128100; {html.escape(c["assigned_to_name"])}</span>' if c['assigned_to_name'] else ''
-            date_html = f'<span style="font-size:0.72rem;color:#888;">&#128197; {c["publish_date"]}</span>' if c['publish_date'] else ''
+            asgn = f'<span style="font-size:0.72rem;color:#888;"><i data-lucide="user" class="icon"></i> {html.escape(c["assigned_to_name"])}</span>' if c['assigned_to_name'] else ''
+            date_html = f'<span style="font-size:0.72rem;color:#888;"><i data-lucide="calendar" class="icon"></i> {c["publish_date"]}</span>' if c['publish_date'] else ''
             bs_opts = ''.join(f'<option value="{v}"{"selected" if c["board_status"]==v else ""}>{l}</option>'
                 for v, l in [('backlog','Backlog'),('bezig','Bezig'),('klaar','Klaar'),('','Verwijder uit board')])
             move_sel = f'''<form method="GET" action="/comm/content/board-status" style="display:inline;">
                 <input type="hidden" name="id" value="{c["id"]}">
                 <select name="status" style="font-size:0.68rem;padding:0.1rem;" onchange="this.form.submit()">{bs_opts}</select></form>'''
             return f'''<div style="background:#fff;border-radius:6px;padding:0.5rem 0.65rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.08);border-left:3px solid {col};opacity:0.92;">
-                <div style="font-size:0.82rem;font-weight:bold;">&#128240; {html.escape(c["title"])}</div>
+                <div style="font-size:0.82rem;font-weight:bold;"><i data-lucide="newspaper" class="icon"></i> {html.escape(c["title"])}</div>
                 <div style="display:flex;gap:0.3rem;align-items:center;margin-top:0.25rem;flex-wrap:wrap;">{asgn}{date_html}{move_sel}</div>
             </div>'''
 
@@ -6132,17 +6161,17 @@ function bulkAction(action){
         backlog_total = len(backlog) + len(board_content_backlog)
         bezig_total   = len(bezig)   + len(board_content_bezig)
         klaar_total   = len(klaar)   + len(board_content_klaar)
-        body += f'<div class="comm-column" data-status="backlog" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#128203; Backlog <span style="background:#888;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{backlog_total}</span></div>'
+        body += f'<div class="comm-column" data-status="backlog" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;"><i data-lucide="clipboard-list" class="icon"></i> Backlog <span style="background:#888;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{backlog_total}</span></div>'
         body += (''.join(_task_card(t) for t in backlog) + ''.join(_content_board_card(c) for c in board_content_backlog)) or '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>'
         body += '</div>'
-        body += f'<div class="comm-column" data-status="bezig" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#9889; Bezig <span style="background:#1565c0;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{bezig_total}</span></div>'
+        body += f'<div class="comm-column" data-status="bezig" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;"><i data-lucide="zap" class="icon"></i> Bezig <span style="background:#1565c0;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{bezig_total}</span></div>'
         body += (''.join(_task_card(t) for t in bezig) + ''.join(_content_board_card(c) for c in board_content_bezig)) or '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>'
         body += '</div>'
-        body += f'<div class="comm-column" data-status="klaar" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">&#10003; Klaar <span style="background:#388e3c;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{klaar_total}</span></div>'
+        body += f'<div class="comm-column" data-status="klaar" style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;"><i data-lucide="check" class="icon"></i> Klaar <span style="background:#388e3c;color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{klaar_total}</span></div>'
         klaar_html = ''.join(_task_card(t) for t in klaar) + ''.join(_content_board_card(c) for c in board_content_klaar)
         if klaar_html:
             body += klaar_html
-            body += f'<div style="margin-top:0.5rem;"><a href="/comm/tasks/archive-done" class="btn btn-sm btn-secondary" onclick="return confirm(\'Alle afgeronde taken archiveren?\');">&#128452; Archiveer alle ({len(klaar)})</a></div>'
+            body += f'<div style="margin-top:0.5rem;"><a href="/comm/tasks/archive-done" class="btn btn-sm btn-secondary" onclick="return confirm(\'Alle afgeronde taken archiveren?\');"><i data-lucide="archive" class="icon"></i> Archiveer alle ({len(klaar)})</a></div>'
         else:
             body += '<div class="comm-empty" style="color:#aaa;font-size:0.85rem;padding:1rem 0;text-align:center;">Sleep hier naartoe</div>'
         body += '</div></div>'
@@ -6259,14 +6288,14 @@ function bulkAction(action){
             tasks_by_goal[t['goal_id']].append(t)
 
         body = html_header('Communicatie Doelen', True, username, user_id)
-        body += '<h2 class="mt-4">&#127945; Doelen</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="target" class="icon"></i> Doelen</h2>'
         body += self._comm_nav('goals', user_id)
 
         actief  = [g for g in goals if g['status'] == 'actief']
         behaald = [g for g in goals if g['status'] == 'behaald']
         body += f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;"><div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:#7b1fa2;">{len(actief)}</div><div style="font-size:0.8rem;color:#555;">Actief</div></div><div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:#388e3c;">{len(behaald)}</div><div style="font-size:0.8rem;color:#555;">Behaald</div></div></div>'
 
-        body += '''<div class="card" style="margin-bottom:1rem;"><div class="section-title">&#43; Nieuw doel</div>
+        body += '''<div class="card" style="margin-bottom:1rem;"><div class="section-title">+ Nieuw doel</div>
             <form method="POST" action="/comm/goals/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
                 <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Doel *</label><br>
                     <input type="text" name="title" required placeholder="Bijv. Q2 campagne" class="form-control"></div>
@@ -6281,12 +6310,12 @@ function bulkAction(action){
             is_done  = g['status'] == 'behaald'
             overdue  = g['target_date'] and g['target_date'] < today_iso and not is_done
             dc       = '#dc3545' if overdue else ('#388e3c' if is_done else '#555')
-            date_str = f' &#128197; <span style="color:{dc};">{g["target_date"]}{"  &#9888;" if overdue else ""}</span>' if g['target_date'] else ''
-            sbadge   = '<span style="background:#e8f5e9;color:#388e3c;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.78rem;">&#10003; Behaald</span>' if is_done else '<span style="background:#ede7f6;color:#7b1fa2;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.78rem;">Actief</span>'
+            date_str = f' <i data-lucide="calendar" class="icon"></i> <span style="color:{dc};">{g["target_date"]}{"  <i data-lucide="alert-triangle" class="icon"></i>" if overdue else ""}</span>' if g['target_date'] else ''
+            sbadge   = '<span style="background:#e8f5e9;color:#388e3c;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.78rem;"><i data-lucide="check" class="icon"></i> Behaald</span>' if is_done else '<span style="background:#ede7f6;color:#7b1fa2;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.78rem;">Actief</span>'
             desc     = f'<div style="font-size:0.85rem;color:#666;margin:0.25rem 0;">{html.escape(g["description"])}</div>' if g['description'] else ''
             act_btn  = (f'<a href="/comm/goals/reopen?id={g["id"]}" class="btn btn-sm btn-secondary">↩ Heropenen</a>' if is_done
-                        else f'<a href="/comm/goals/complete?id={g["id"]}" class="btn btn-sm" style="background:#388e3c;color:#fff;" onclick="return confirm(\'Doel behaald markeren?\');">&#10003; Behaald</a>')
-            edit_btn = f'<a href="/comm/goals/edit?id={g["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.4rem;">&#9998; Bewerk</a>'
+                        else f'<a href="/comm/goals/complete?id={g["id"]}" class="btn btn-sm" style="background:#388e3c;color:#fff;" onclick="return confirm(\'Doel behaald markeren?\');"><i data-lucide="check" class="icon"></i> Behaald</a>')
+            edit_btn = f'<a href="/comm/goals/edit?id={g["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.4rem;"><i data-lucide="pencil" class="icon"></i> Bewerk</a>'
             del_btn  = f'<a href="/comm/goals/delete?id={g["id"]}" class="btn btn-sm btn-danger" style="margin-left:0.4rem;" onclick="return confirm(\'Doel verwijderen?\');">Verwijder</a>'
 
             gtasks    = tasks_by_goal.get(g['id'], [])
@@ -6297,7 +6326,7 @@ function bulkAction(action){
 
             body += f'''<div class="card" style="opacity:{'0.7' if is_done else '1'};">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;">
-                    <div style="flex:1;"><strong>&#127945; {html.escape(g["title"])}</strong> {sbadge}{date_str}
+                    <div style="flex:1;"><strong><i data-lucide="target" class="icon"></i> {html.escape(g["title"])}</strong> {sbadge}{date_str}
                         {desc}{prog_bar}</div>
                     <div style="white-space:nowrap;">{act_btn}{edit_btn}{del_btn}</div>
                 </div>'''
@@ -6306,10 +6335,10 @@ function bulkAction(action){
                 for t in gtasks:
                     td   = t['status'] == 'klaar'
                     to   = t['due_date'] and t['due_date'] < today_iso and not td
-                    icon = '&#10003;' if td else ('&#9889;' if t['status'] == 'bezig' else '&#9675;')
+                    icon = '<i data-lucide="check" class="icon"></i>' if td else ('<i data-lucide="zap" class="icon"></i>' if t['status'] == 'bezig' else '&#9675;')
                     ic   = '#388e3c' if td else ('#1565c0' if t['status'] == 'bezig' else '#888')
-                    dat  = f' <small style="color:{"#dc3545" if to else "#888"};">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
-                    asgn = f' <small style="color:#888;">&#128100; {html.escape(t["assigned_to_name"])}</small>' if t['assigned_to_name'] else ''
+                    dat  = f' <small style="color:{"#dc3545" if to else "#888"};"><i data-lucide="calendar" class="icon"></i> {t["due_date"]}</small>' if t['due_date'] else ''
+                    asgn = f' <small style="color:#888;"><i data-lucide="user" class="icon"></i> {html.escape(t["assigned_to_name"])}</small>' if t['assigned_to_name'] else ''
                     pb   = self._priority_badge(t['priority'])
                     body += f'<div style="padding:0.2rem 0;font-size:0.83rem;border-bottom:1px solid #f5f5f5;display:flex;gap:0.4rem;align-items:center;"><span style="color:{ic};">{icon}</span> <span>{html.escape(t["title"])}</span>{asgn}{dat} {pb}</div>'
                 body += '</div>'
@@ -6342,7 +6371,7 @@ function bulkAction(action){
         by_status = {s[0]: [t for t in all_tasks if t['status'] == s[0]] for s in statuses}
 
         body = html_header('Events Gov', True, username, user_id)
-        body += '<h2 class="mt-4">&#127937; Events Gov</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="flag" class="icon"></i> Events Gov</h2>'
         body += self._comm_nav('events-gov', user_id)
 
         # Add form
@@ -6378,18 +6407,18 @@ function bulkAction(action){
                 body += '<div style="color:#aaa;font-size:0.85rem;font-style:italic;">Leeg</div>'
             for t in tasks:
                 is_overdue = t['due_date'] and t['due_date'] < today_iso and s_key != 'klaar'
-                date_str = f'<span style="font-size:0.75rem;color:{"#dc3545" if is_overdue else "#888"};">&#128197; {t["due_date"]}</span>' if t['due_date'] else ''
+                date_str = f'<span style="font-size:0.75rem;color:{"#dc3545" if is_overdue else "#888"};"><i data-lucide="calendar" class="icon"></i> {t["due_date"]}</span>' if t['due_date'] else ''
                 prio_colors = {'hoog': '#dc3545', 'medium': '#f57f17', 'laag': '#388e3c'}
                 prio_dot = f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{prio_colors.get(t["priority"],"#aaa")};margin-right:4px;"></span>'
-                ctx = f'<div style="font-size:0.75rem;color:#7b1fa2;margin-bottom:0.2rem;">&#128197; {html.escape(t["event_context"])}</div>' if t['event_context'] else ''
+                ctx = f'<div style="font-size:0.75rem;color:#7b1fa2;margin-bottom:0.2rem;"><i data-lucide="calendar" class="icon"></i> {html.escape(t["event_context"])}</div>' if t['event_context'] else ''
                 desc = f'<div style="font-size:0.78rem;color:#555;margin:0.2rem 0;">{html.escape(t["description"])}</div>' if t['description'] else ''
-                assigned = f'<span style="font-size:0.75rem;color:#1565c0;">&#128100; {html.escape(t["assigned_name"])}</span>' if t['assigned_name'] else '<span style="font-size:0.75rem;color:#aaa;">Niemand</span>'
+                assigned = f'<span style="font-size:0.75rem;color:#1565c0;"><i data-lucide="user" class="icon"></i> {html.escape(t["assigned_name"])}</span>' if t['assigned_name'] else '<span style="font-size:0.75rem;color:#aaa;">Niemand</span>'
                 # Status-buttons
                 btn_opts = ''.join(
                     f'<button formaction="/comm/events-gov/status" name="status" value="{sk}" style="font-size:0.72rem;padding:0.1rem 0.4rem;border:1px solid {sc};background:#fff;color:{sc};border-radius:3px;cursor:pointer;">{sl}</button>'
                     for sk, sl, _, sc in statuses if sk != s_key
                 )
-                del_btn = f'<button formaction="/comm/events-gov/delete" style="font-size:0.72rem;padding:0.1rem 0.4rem;border:1px solid #dc3545;background:#fff;color:#dc3545;border-radius:3px;cursor:pointer;" onclick="return confirm(\'Verwijderen?\')">&#10005;</button>'
+                del_btn = f'<button formaction="/comm/events-gov/delete" style="font-size:0.72rem;padding:0.1rem 0.4rem;border:1px solid #dc3545;background:#fff;color:#dc3545;border-radius:3px;cursor:pointer;" onclick="return confirm(\'Verwijderen?\')"><i data-lucide="x" class="icon"></i></button>'
                 body += f'''<div style="background:#fff;border-radius:6px;padding:0.6rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
                     <div style="font-weight:bold;font-size:0.88rem;margin-bottom:0.2rem;">{prio_dot}{html.escape(t["title"])}</div>
                     {ctx}{desc}
@@ -6433,7 +6462,7 @@ function bulkAction(action){
             hoog_other = cur.fetchall()
 
         body = html_header('Week Overzicht', True, username, user_id)
-        body += f'<h2 class="mt-4">&#128197; Week overzicht — {today.strftime("%d %b %Y")}</h2>'
+        body += f'<h2 class="mt-4"><i data-lucide="calendar" class="icon"></i> Week overzicht — {today.strftime("%d %b %Y")}</h2>'
         body += self._comm_nav('week', user_id)
 
         overdue = [t for t in week_tasks if t['due_date'] < today_iso]
@@ -6443,8 +6472,8 @@ function bulkAction(action){
 
         def _week_row(t, highlight=''):
             pb   = self._priority_badge(t['priority'])
-            asgn = f'<span style="color:#888;font-size:0.78rem;">&#128100; {html.escape(t["assigned_to_name"])}</span>' if t['assigned_to_name'] else ''
-            goal = f'<span style="font-size:0.72rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"])}</span>' if t['goal_title'] else ''
+            asgn = f'<span style="color:#888;font-size:0.78rem;"><i data-lucide="user" class="icon"></i> {html.escape(t["assigned_to_name"])}</span>' if t['assigned_to_name'] else ''
+            goal = f'<span style="font-size:0.72rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;"><i data-lucide="target" class="icon"></i> {html.escape(t["goal_title"])}</span>' if t['goal_title'] else ''
             return f'<div style="padding:0.45rem 0;border-bottom:1px solid #eee;display:flex;gap:0.5rem;align-items:center;{highlight}"><span style="min-width:70px;font-size:0.78rem;color:#888;">{t["due_date"] or ""}</span> <span style="flex:1;font-weight:bold;font-size:0.88rem;">{html.escape(t["title"])}</span> {pb} {goal} {asgn}</div>'
 
         def _section(title, tasks, bg='#fff', border='#ddd'):
@@ -6454,14 +6483,14 @@ function bulkAction(action){
             s += ''.join(_week_row(t) for t in tasks)
             return s + '</div>'
 
-        body += _section('&#9888; Verlopen', overdue, border='#dc3545')
-        body += _section('&#128197; Vandaag', vandaag, border='#f57f17')
-        body += _section('&#9728; Morgen', morgen, border='#1565c0')
-        body += _section('&#128336; Deze week', rest, border='#388e3c')
+        body += _section('<i data-lucide="alert-triangle" class="icon"></i> Verlopen', overdue, border='#dc3545')
+        body += _section('<i data-lucide="calendar" class="icon"></i> Vandaag', vandaag, border='#f57f17')
+        body += _section('<i data-lucide="sun" class="icon"></i> Morgen', morgen, border='#1565c0')
+        body += _section('<i data-lucide="clock" class="icon"></i> Deze week', rest, border='#388e3c')
         if hoog_other:
             body += _section('&#9650; Hoge prioriteit (later)', hoog_other, border='#5C7A5A')
         if not week_tasks and not hoog_other:
-            body += '<div class="card"><p style="color:#888;">Geen taken deze week. Goed bezig! &#127881;</p></div>'
+            body += '<div class="card"><p style="color:#888;">Geen taken deze week. Goed bezig! <i data-lucide="star" class="icon"></i></p></div>'
         body += html_footer()
         self._send_html(body)
 
@@ -6516,11 +6545,11 @@ function bulkAction(action){
         can_edit     = (profile_id == viewer_id or is_admin(viewer_id))
 
         body = html_header(f'Profiel: {html.escape(profile_user["username"])}', True, viewer_username, viewer_id)
-        body += f'<h2 class="mt-4">&#128100; {html.escape(profile_user["username"])}</h2>'
+        body += f'<h2 class="mt-4"><i data-lucide="user" class="icon"></i> {html.escape(profile_user["username"])}</h2>'
         body += self._comm_nav('profile', viewer_id)
 
         # Profile card with extended info
-        edit_link = f'<a href="/comm/profile/edit?id={profile_id}" class="btn btn-sm btn-secondary" style="margin-top:0.5rem;">&#9998; Profiel bewerken</a>' if can_edit else ''
+        edit_link = f'<a href="/comm/profile/edit?id={profile_id}" class="btn btn-sm btn-secondary" style="margin-top:0.5rem;"><i data-lucide="pencil" class="icon"></i> Profiel bewerken</a>' if can_edit else ''
         skills_html = ''
         if skills_raw:
             skills_html = '<div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap;">' + ''.join(
@@ -6559,18 +6588,18 @@ function bulkAction(action){
             pb  = self._priority_badge(t['priority'])
             ov  = t['due_date'] and t['due_date'] < today_iso and t['status'] not in ('klaar','archief')
             dc  = '#dc3545' if ov else '#555'
-            dat = f'<small style="color:{dc};">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
-            gl  = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;">&#127945; {html.escape(t["goal_title"] or "")}</span>' if t['goal_title'] else ''
+            dat = f'<small style="color:{dc};"><i data-lucide="calendar" class="icon"></i> {t["due_date"]}</small>' if t['due_date'] else ''
+            gl  = f'<span style="font-size:0.7rem;background:#ede7f6;color:#7b1fa2;border-radius:3px;padding:0.05rem 0.3rem;"><i data-lucide="target" class="icon"></i> {html.escape(t["goal_title"] or "")}</span>' if t['goal_title'] else ''
             return f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;display:flex;gap:0.4rem;align-items:center;"><span style="flex:1;font-size:0.86rem;">{html.escape(t["title"])}</span>{pb}{gl}{dat}</div>'
         if today_due:
-            body += f'<div style="background:#fff8e1;border-left:4px solid #f57f17;border-radius:4px;padding:0.6rem 0.9rem;margin-bottom:0.75rem;">&#128197; <strong>Vervalt vandaag:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in today_due) + '</div>'
+            body += f'<div style="background:#fff8e1;border-left:4px solid #f57f17;border-radius:4px;padding:0.6rem 0.9rem;margin-bottom:0.75rem;"><i data-lucide="calendar" class="icon"></i> <strong>Vervalt vandaag:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em>' for t in today_due) + '</div>'
         if soon_tasks:
-            body += f'<div style="background:#fff3e0;border-left:4px solid #ef6c00;border-radius:4px;padding:0.6rem 0.9rem;margin-bottom:0.75rem;">&#9201; <strong>Deadline binnen 48 uur:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em> <span style="font-size:0.8rem;color:#888;">({t["due_date"]})</span>' for t in soon_tasks) + '</div>'
+            body += f'<div style="background:#fff3e0;border-left:4px solid #ef6c00;border-radius:4px;padding:0.6rem 0.9rem;margin-bottom:0.75rem;"><i data-lucide="clock" class="icon"></i> <strong>Deadline binnen 48 uur:</strong> ' + ', '.join(f'<em>{html.escape(t["title"])}</em> <span style="font-size:0.8rem;color:#888;">({t["due_date"]})</span>' for t in soon_tasks) + '</div>'
 
         # Handmatige herinneringsnotities
         reminders_with_note = [t for t in my_open if t['reminder_note']]
         if reminders_with_note:
-            body += '<div class="card" style="border-left:4px solid #388e3c;"><div class="section-title">&#128276; Herinneringen</div>'
+            body += '<div class="card" style="border-left:4px solid #388e3c;"><div class="section-title"><i data-lucide="bell" class="icon"></i> Herinneringen</div>'
             for t in reminders_with_note:
                 body += f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;font-size:0.85rem;"><strong>{html.escape(t["title"])}</strong>: <span style="color:#388e3c;">{html.escape(t["reminder_note"])}</span></div>'
             body += '</div>'
@@ -6591,8 +6620,8 @@ function bulkAction(action){
                 done = g['status'] == 'behaald'
                 ov   = g['target_date'] and g['target_date'] < today_iso and not done
                 dc   = '#dc3545' if ov else ('#388e3c' if done else '#555')
-                dat  = f' <small style="color:{dc};">&#128197; {g["target_date"]}</small>' if g['target_date'] else ''
-                sb   = '<span style="color:#388e3c;font-size:0.8rem;">&#10003;</span>' if done else '<span style="color:#7b1fa2;font-size:0.8rem;">&#9679;</span>'
+                dat  = f' <small style="color:{dc};"><i data-lucide="calendar" class="icon"></i> {g["target_date"]}</small>' if g['target_date'] else ''
+                sb   = '<span style="color:#388e3c;font-size:0.8rem;"><i data-lucide="check" class="icon"></i></span>' if done else '<span style="color:#7b1fa2;font-size:0.8rem;">&#9679;</span>'
                 body += f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;font-size:0.86rem;">{sb} <strong>{html.escape(g["title"])}</strong>{dat}</div>'
         else:
             body += '<p style="color:#888;font-size:0.85rem;">Geen doelen gevonden.</p>'
@@ -6600,20 +6629,20 @@ function bulkAction(action){
 
         # Recent done
         if my_done:
-            body += '<div class="card"><div class="section-title">Recent afgerond &#10003;</div>'
+            body += '<div class="card"><div class="section-title">Recent afgerond <i data-lucide="check" class="icon"></i></div>'
             for t in my_done[:5]:
-                body += f'<div style="padding:0.3rem 0;border-bottom:1px solid #eee;font-size:0.83rem;color:#388e3c;">&#10003; {html.escape(t["title"])}</div>'
+                body += f'<div style="padding:0.3rem 0;border-bottom:1px solid #eee;font-size:0.83rem;color:#388e3c;"><i data-lucide="check" class="icon"></i> {html.escape(t["title"])}</div>'
             body += '</div>'
 
         # Events Gov checks
         if my_gov_tasks:
-            body += '<div class="card" style="border-left:4px solid #7b1fa2;"><div class="section-title">&#127937; Events Gov — mijn checks</div>'
+            body += '<div class="card" style="border-left:4px solid #7b1fa2;"><div class="section-title"><i data-lucide="flag" class="icon"></i> Events Gov — mijn checks</div>'
             s_labels = {'open': ('Open','#f57f17'), 'in_check': ('In check','#1565c0'), 'klaar': ('Klaar','#388e3c')}
             for t in my_gov_tasks:
                 sl, sc = s_labels.get(t['status'], ('?','#888'))
                 badge = f'<span style="font-size:0.72rem;background:{sc};color:#fff;border-radius:3px;padding:0.1rem 0.3rem;">{sl}</span>'
                 ctx = f' <span style="font-size:0.75rem;color:#7b1fa2;">{html.escape(t["event_context"])}</span>' if t['event_context'] else ''
-                date_str = f' <small style="color:#888;">&#128197; {t["due_date"]}</small>' if t['due_date'] else ''
+                date_str = f' <small style="color:#888;"><i data-lucide="calendar" class="icon"></i> {t["due_date"]}</small>' if t['due_date'] else ''
                 body += f'<div style="padding:0.35rem 0;border-bottom:1px solid #eee;font-size:0.85rem;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">{badge} <strong>{html.escape(t["title"])}</strong>{ctx}{date_str}</div>'
             body += f'<div style="margin-top:0.5rem;"><a href="/comm/events-gov" style="font-size:0.82rem;color:#7b1fa2;">→ Naar Events Gov board</a></div></div>'
 
@@ -6647,7 +6676,7 @@ function bulkAction(action){
             upcoming_content = cur.fetchall()
 
         body = html_header('Overzicht', True, username, user_id)
-        body += '<h2 class="mt-4">&#128203; Overzicht — komende 30 dagen</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="clipboard-list" class="icon"></i> Overzicht — komende 30 dagen</h2>'
         body += self._comm_nav('overview', user_id)
 
         # Build combined timeline
@@ -6663,7 +6692,7 @@ function bulkAction(action){
         items.sort(key=lambda x: x[0])
 
         if not items:
-            body += '<div class="card"><p style="color:#888;">Geen aankomende items in de komende 30 dagen. &#127881;</p></div>'
+            body += '<div class="card"><p style="color:#888;">Geen aankomende items in de komende 30 dagen. <i data-lucide="star" class="icon"></i></p></div>'
         else:
             body += '<div class="card" style="padding:0;">'
             prev_date = None
@@ -6671,7 +6700,7 @@ function bulkAction(action){
                 if date_str != prev_date:
                     days_diff = (datetime.date.fromisoformat(date_str) - today).days
                     if days_diff < 0:
-                        day_label = f'&#9888; {abs(days_diff)} dag{"" if abs(days_diff)==1 else "en"} geleden'
+                        day_label = f'<i data-lucide="alert-triangle" class="icon"></i> {abs(days_diff)} dag{"" if abs(days_diff)==1 else "en"} geleden'
                         hdr_color = '#dc3545'
                     elif days_diff == 0:
                         day_label = 'Vandaag'
@@ -6683,21 +6712,21 @@ function bulkAction(action){
                         day_label = f'Over {days_diff} dagen'
                         hdr_color = '#555'
                     d_obj = datetime.date.fromisoformat(date_str)
-                    body += f'<div style="background:#f8f9fa;padding:0.4rem 0.9rem;font-size:0.78rem;font-weight:bold;color:{hdr_color};border-bottom:1px solid #eee;">&#128197; {d_obj.strftime("%d %b %Y")} — {day_label}</div>'
+                    body += f'<div style="background:#f8f9fa;padding:0.4rem 0.9rem;font-size:0.78rem;font-weight:bold;color:{hdr_color};border-bottom:1px solid #eee;"><i data-lucide="calendar" class="icon"></i> {d_obj.strftime("%d %b %Y")} — {day_label}</div>'
                     prev_date = date_str
                 if kind == 'task':
                     pb = self._priority_badge(item['priority'])
-                    asgn = f'<span style="font-size:0.72rem;color:#888;">&#128100; {html.escape(item["assigned_to_name"])}</span>' if item['assigned_to_name'] else ''
+                    asgn = f'<span style="font-size:0.72rem;color:#888;"><i data-lucide="user" class="icon"></i> {html.escape(item["assigned_to_name"])}</span>' if item['assigned_to_name'] else ''
                     ov_style = 'color:#dc3545;' if overdue else ''
-                    body += f'<div style="padding:0.45rem 0.9rem;border-bottom:1px solid #f0f0f0;display:flex;gap:0.4rem;align-items:center;"><span style="font-size:0.75rem;background:#fff3e0;color:#f57f17;border-radius:3px;padding:0.05rem 0.3rem;">&#128203; Taak</span> <a href="/comm/board" style="flex:1;font-size:0.86rem;font-weight:bold;{ov_style}color:inherit;text-decoration:none;">{html.escape(item["title"])}</a> {pb} {asgn}</div>'
+                    body += f'<div style="padding:0.45rem 0.9rem;border-bottom:1px solid #f0f0f0;display:flex;gap:0.4rem;align-items:center;"><span style="font-size:0.75rem;background:#fff3e0;color:#f57f17;border-radius:3px;padding:0.05rem 0.3rem;"><i data-lucide="clipboard-list" class="icon"></i> Taak</span> <a href="/comm/board" style="flex:1;font-size:0.86rem;font-weight:bold;{ov_style}color:inherit;text-decoration:none;">{html.escape(item["title"])}</a> {pb} {asgn}</div>'
                 elif kind == 'date':
-                    type_icons = {'deadline':'&#9888;','milestone':'&#127937;','event':'&#127881;'}
-                    icon = type_icons.get(item['event_type'], '&#128197;')
+                    type_icons = {'deadline':'<i data-lucide="alert-triangle" class="icon"></i>','milestone':'<i data-lucide="flag" class="icon"></i>','event':'<i data-lucide="star" class="icon"></i>'}
+                    icon = type_icons.get(item['event_type'], '<i data-lucide="calendar" class="icon"></i>')
                     body += f'<div style="padding:0.45rem 0.9rem;border-bottom:1px solid #f0f0f0;display:flex;gap:0.4rem;align-items:center;"><span style="font-size:0.75rem;background:#EDF3EC;color:#5C7A5A;border-radius:3px;padding:0.05rem 0.3rem;">{icon} Datum</span> <a href="/comm/dates" style="flex:1;font-size:0.86rem;font-weight:bold;color:inherit;text-decoration:none;">{html.escape(item["title"])}</a></div>'
                 elif kind == 'content':
-                    platform_icons = {'instagram':'&#128247;','linkedin':'&#128188;','website':'&#127760;','email':'&#128140;','overig':'&#128204;'}
-                    icon = platform_icons.get(item['platform'], '&#128204;')
-                    asgn = f'<span style="font-size:0.72rem;color:#888;">&#128100; {html.escape(item["assigned_to_name"])}</span>' if item['assigned_to_name'] else ''
+                    platform_icons = {'instagram':'<i data-lucide="image" class="icon"></i>','linkedin':'<i data-lucide="briefcase" class="icon"></i>','website':'<i data-lucide="globe" class="icon"></i>','email':'<i data-lucide="mail" class="icon"></i>','overig':'<i data-lucide="map-pin" class="icon"></i>'}
+                    icon = platform_icons.get(item['platform'], '<i data-lucide="map-pin" class="icon"></i>')
+                    asgn = f'<span style="font-size:0.72rem;color:#888;"><i data-lucide="user" class="icon"></i> {html.escape(item["assigned_to_name"])}</span>' if item['assigned_to_name'] else ''
                     ov_style = 'color:#dc3545;' if overdue else ''
                     body += f'<div style="padding:0.45rem 0.9rem;border-bottom:1px solid #f0f0f0;display:flex;gap:0.4rem;align-items:center;"><span style="font-size:0.75rem;background:#e3f2fd;color:#1565c0;border-radius:3px;padding:0.05rem 0.3rem;">{icon} Content</span> <a href="/comm/content" style="flex:1;font-size:0.86rem;font-weight:bold;{ov_style}color:inherit;text-decoration:none;">{html.escape(item["title"])}</a> {asgn}</div>'
             body += '</div>'
@@ -6728,7 +6757,7 @@ function bulkAction(action){
             archived = cur.fetchall()
 
         body = html_header('Archief', True, username, user_id)
-        body += '<h2 class="mt-4">&#128452; Archief — Afgeronde taken</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="archive" class="icon"></i> Archief — Afgeronde taken</h2>'
         body += self._comm_nav('archived', user_id)
         body += f'<div class="card"><div class="section-title">{len(archived)} gearchiveerde taken</div>'
         if archived:
@@ -6750,7 +6779,7 @@ function bulkAction(action){
         """Render comm task search results."""
         today_iso = datetime.date.today().isoformat()
         body = html_header('Zoeken', True, username, user_id)
-        body += '<h2 class="mt-4">&#128269; Taken zoeken</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="search" class="icon"></i> Taken zoeken</h2>'
         body += self._comm_nav('search', user_id)
 
         member_opts = '<option value="">Alle teamleden</option>' + ''.join(
@@ -6781,7 +6810,7 @@ function bulkAction(action){
                 ov   = t['due_date'] and t['due_date'] < today_iso and t['status'] not in ('klaar','archief')
                 dc   = '#dc3545' if ov else '#555'
                 pb   = self._priority_badge(t['priority'])
-                sb   = {'backlog':'&#128203; Backlog','bezig':'&#9889; Bezig','klaar':'&#10003; Klaar'}.get(t['status'], t['status'])
+                sb   = {'backlog':'<i data-lucide="clipboard-list" class="icon"></i> Backlog','bezig':'<i data-lucide="zap" class="icon"></i> Bezig','klaar':'<i data-lucide="check" class="icon"></i> Klaar'}.get(t['status'], t['status'])
                 body += f'<tr><td><strong>{html.escape(t["title"])}</strong>'
                 if t['tags']:
                     body += f'<br><small style="color:#1565c0;">{html.escape(t["tags"])}</small>'
@@ -6805,7 +6834,7 @@ function bulkAction(action){
         prio_opts = _sel('priority', [('hoog','&#9650; Hoog'),('medium','&#9654; Medium'),('laag','&#9660; Laag')], task['priority'] or 'medium')
 
         body = html_header('Taak bewerken', True, username, user_id)
-        body += '<h2 class="mt-4">&#9998; Taak bewerken</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="pencil" class="icon"></i> Taak bewerken</h2>'
         body += f'''<div class="card" style="max-width:640px;">
             <form method="POST" action="/comm/tasks/edit?id={task["id"]}">
                 <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Taak *</label><br>
@@ -6839,7 +6868,7 @@ function bulkAction(action){
     def render_comm_goal_edit(self, goal, user_id: int, username: str) -> None:
         """Render edit form for a comm goal."""
         body = html_header('Doel bewerken', True, username, user_id)
-        body += '<h2 class="mt-4">&#9998; Doel bewerken</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="pencil" class="icon"></i> Doel bewerken</h2>'
         body += f'''<div class="card" style="max-width:540px;">
             <form method="POST" action="/comm/goals/edit?id={goal["id"]}">
                 <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Doel *</label><br>
@@ -6873,7 +6902,7 @@ function bulkAction(action){
             all_dates = cur.fetchall()
 
         body = html_header('Belangrijke Datums', True, username, user_id)
-        body += '<h2 class="mt-4">&#128197; Belangrijke Datums</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="calendar" class="icon"></i> Belangrijke Datums</h2>'
         body += self._comm_nav('dates', user_id)
 
         # Stats
@@ -6888,7 +6917,7 @@ function bulkAction(action){
         body += '</div>'
 
         # Add form
-        body += '''<div class="card" style="margin-bottom:1rem;"><div class="section-title">&#43; Datum toevoegen</div>
+        body += '''<div class="card" style="margin-bottom:1rem;"><div class="section-title">+ Datum toevoegen</div>
             <form method="POST" action="/comm/dates/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
                 <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Titel *</label><br>
                     <input type="text" name="title" required placeholder="Bijv. Campagne lancering" class="form-control"></div>
@@ -6896,9 +6925,9 @@ function bulkAction(action){
                     <input type="date" name="date" required class="form-control"></div>
                 <div style="min-width:120px;"><label style="font-size:0.8rem;font-weight:bold;">Type</label><br>
                     <select name="type" class="form-control">
-                        <option value="event">&#127881; Event</option>
-                        <option value="deadline">&#9888; Deadline</option>
-                        <option value="mijlpaal">&#127937; Mijlpaal</option>
+                        <option value="event"><i data-lucide="star" class="icon"></i> Event</option>
+                        <option value="deadline"><i data-lucide="alert-triangle" class="icon"></i> Deadline</option>
+                        <option value="mijlpaal"><i data-lucide="flag" class="icon"></i> Mijlpaal</option>
                     </select></div>
                 <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Omschrijving</label><br>
                     <input type="text" name="description" placeholder="Optioneel" class="form-control"></div>
@@ -6907,9 +6936,9 @@ function bulkAction(action){
 
         # Type icons and colors
         type_cfg = {
-            'event':    ('&#127881;', '#1565c0', '#e3f2fd'),
-            'deadline': ('&#9888;',   '#dc3545', '#ffebee'),
-            'mijlpaal': ('&#127937;', '#7b1fa2', '#ede7f6'),
+            'event':    ('<i data-lucide="star" class="icon"></i>', '#1565c0', '#e3f2fd'),
+            'deadline': ('<i data-lucide="alert-triangle" class="icon"></i>',   '#dc3545', '#ffebee'),
+            'mijlpaal': ('<i data-lucide="flag" class="icon"></i>', '#7b1fa2', '#ede7f6'),
         }
 
         # Group by month
@@ -6931,7 +6960,7 @@ function bulkAction(action){
             is_past_month = month_key < today_iso[:7]
             body += f'<div class="card" style="margin-bottom:0.75rem;opacity:{"0.65" if is_past_month else "1"};"><div style="font-weight:bold;font-size:1rem;margin-bottom:0.5rem;color:{"#aaa" if is_past_month else "#333"};">{"🗓" if not is_past_month else "⏮"} {month_label}</div>'
             for d in dates:
-                icon, color, bg = type_cfg.get(d['type'], ('&#128197;', '#555', '#f5f5f5'))
+                icon, color, bg = type_cfg.get(d['type'], ('<i data-lucide="calendar" class="icon"></i>', '#555', '#f5f5f5'))
                 is_past  = d['date'] < today_iso
                 is_today = d['date'] == today_iso
                 days_delta = (datetime.date.fromisoformat(d['date']) - datetime.date.today()).days
@@ -6946,8 +6975,8 @@ function bulkAction(action){
 
                 desc = f'<div style="font-size:0.82rem;color:#666;">{html.escape(d["description"])}</div>' if d['description'] else ''
                 to_task_btn = f'<a href="/comm/dates/to-task?id={d["id"]}" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:0.7rem;margin-left:0.3rem;" onclick="return confirm(\'Taak aanmaken van deze datum?\');">→ Taak</a>'
-                edit_btn    = f'<a href="/comm/dates/edit?id={d["id"]}" class="btn btn-sm btn-secondary" style="font-size:0.7rem;margin-left:0.3rem;">&#9998;</a>'
-                del_btn     = f'<a href="/comm/dates/delete?id={d["id"]}" class="btn btn-sm btn-danger" style="font-size:0.7rem;margin-left:0.3rem;" onclick="return confirm(\'Verwijderen?\');">&#10005;</a>'
+                edit_btn    = f'<a href="/comm/dates/edit?id={d["id"]}" class="btn btn-sm btn-secondary" style="font-size:0.7rem;margin-left:0.3rem;"><i data-lucide="pencil" class="icon"></i></a>'
+                del_btn     = f'<a href="/comm/dates/delete?id={d["id"]}" class="btn btn-sm btn-danger" style="font-size:0.7rem;margin-left:0.3rem;" onclick="return confirm(\'Verwijderen?\');"><i data-lucide="x" class="icon"></i></a>'
                 body += f'''<div style="display:flex;align-items:center;gap:0.75rem;padding:0.45rem 0;border-bottom:1px solid #eee;flex-wrap:wrap;">
                     <div style="min-width:90px;font-size:0.82rem;font-weight:bold;color:{color};">{d["date"]}</div>
                     <span style="background:{bg};color:{color};border-radius:4px;padding:0.1rem 0.4rem;font-size:0.75rem;">{icon} {d["type"].capitalize()}</span>
@@ -6962,9 +6991,9 @@ function bulkAction(action){
     def render_comm_date_edit(self, date_row, user_id: int, username: str) -> None:
         """Render edit form for an important date."""
         type_opts = ''.join(f'<option value="{v}"{"selected" if date_row["type"]==v else ""}>{l}</option>'
-                            for v, l in [('event','&#127881; Event'),('deadline','&#9888; Deadline'),('mijlpaal','&#127937; Mijlpaal')])
+                            for v, l in [('event','<i data-lucide="star" class="icon"></i> Event'),('deadline','<i data-lucide="alert-triangle" class="icon"></i> Deadline'),('mijlpaal','<i data-lucide="flag" class="icon"></i> Mijlpaal')])
         body = html_header('Datum bewerken', True, username, user_id)
-        body += '<h2 class="mt-4">&#9998; Datum bewerken</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="pencil" class="icon"></i> Datum bewerken</h2>'
         body += f'''<div class="card" style="max-width:520px;">
             <form method="POST" action="/comm/dates/edit?id={date_row["id"]}">
                 <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Titel *</label><br>
@@ -6999,11 +7028,11 @@ function bulkAction(action){
             comm_members = cur.fetchall()
 
         platform_cfg = {
-            'instagram': ('&#128247;', '#e91e63', '#EDF3EC'),
-            'linkedin':  ('&#128188;', '#0077b5', '#e3f2fd'),
-            'website':   ('&#127760;', '#388e3c', '#e8f5e9'),
-            'email':     ('&#128140;', '#f57f17', '#fff8e1'),
-            'overig':    ('&#128204;', '#7b1fa2', '#ede7f6'),
+            'instagram': ('<i data-lucide="image" class="icon"></i>', '#e91e63', '#EDF3EC'),
+            'linkedin':  ('<i data-lucide="briefcase" class="icon"></i>', '#0077b5', '#e3f2fd'),
+            'website':   ('<i data-lucide="globe" class="icon"></i>', '#388e3c', '#e8f5e9'),
+            'email':     ('<i data-lucide="mail" class="icon"></i>', '#f57f17', '#fff8e1'),
+            'overig':    ('<i data-lucide="map-pin" class="icon"></i>', '#7b1fa2', '#ede7f6'),
         }
 
         idee        = [i for i in all_items if i['status'] == 'idee']
@@ -7012,7 +7041,7 @@ function bulkAction(action){
         gepubliceerd = [i for i in all_items if i['status'] == 'gepubliceerd']
 
         body = html_header('Content Kalender', True, username, user_id)
-        body += '<h2 class="mt-4">&#128240; Content Kalender</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="newspaper" class="icon"></i> Content Kalender</h2>'
         body += self._comm_nav('content', user_id)
 
         # Stats
@@ -7024,17 +7053,17 @@ function bulkAction(action){
         # Quick add form
         member_opts = '<option value="">Niet toegewezen</option>' + ''.join(
             f'<option value="{m["id"]}"{"selected" if m["id"]==user_id else ""}>{html.escape(m["username"])}</option>' for m in comm_members)
-        body += f'''<div class="card" style="margin-bottom:1rem;"><div class="section-title">&#43; Nieuw content item</div>
+        body += f'''<div class="card" style="margin-bottom:1rem;"><div class="section-title">+ Nieuw content item</div>
             <form method="POST" action="/comm/content/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
                 <div style="flex:2;min-width:160px;"><label style="font-size:0.8rem;font-weight:bold;">Titel *</label><br>
                     <input type="text" name="title" required placeholder="Bijv. Zomercampagne post" class="form-control"></div>
                 <div style="min-width:110px;"><label style="font-size:0.8rem;font-weight:bold;">Platform</label><br>
                     <select name="platform" class="form-control">
-                        <option value="instagram">&#128247; Instagram</option>
-                        <option value="linkedin">&#128188; LinkedIn</option>
-                        <option value="website">&#127760; Website</option>
-                        <option value="email">&#128140; Email</option>
-                        <option value="overig">&#128204; Overig</option>
+                        <option value="instagram"><i data-lucide="image" class="icon"></i> Instagram</option>
+                        <option value="linkedin"><i data-lucide="briefcase" class="icon"></i> LinkedIn</option>
+                        <option value="website"><i data-lucide="globe" class="icon"></i> Website</option>
+                        <option value="email"><i data-lucide="mail" class="icon"></i> Email</option>
+                        <option value="overig"><i data-lucide="map-pin" class="icon"></i> Overig</option>
                     </select></div>
                 <div style="min-width:110px;"><label style="font-size:0.8rem;font-weight:bold;">Status</label><br>
                     <select name="status" class="form-control">
@@ -7052,21 +7081,21 @@ function bulkAction(action){
             </form></div>'''
 
         def _content_card(item):
-            icon, color, bg = platform_cfg.get(item['platform'], ('&#128204;', '#7b1fa2', '#ede7f6'))
+            icon, color, bg = platform_cfg.get(item['platform'], ('<i data-lucide="map-pin" class="icon"></i>', '#7b1fa2', '#ede7f6'))
             is_overdue = item['publish_date'] and item['publish_date'] < today_iso and item['status'] != 'gepubliceerd'
             date_color = '#dc3545' if is_overdue else '#555'
-            date_html  = f'<div style="font-size:0.75rem;color:{date_color};">&#128197; {item["publish_date"]}{"  &#9888;" if is_overdue else ""}</div>' if item['publish_date'] else ''
-            assigned   = f'<div style="font-size:0.75rem;color:#888;">&#128100; {html.escape(item["assigned_to_name"])}</div>' if item['assigned_to_name'] else ''
+            date_html  = f'<div style="font-size:0.75rem;color:{date_color};"><i data-lucide="calendar" class="icon"></i> {item["publish_date"]}{"  <i data-lucide="alert-triangle" class="icon"></i>" if is_overdue else ""}</div>' if item['publish_date'] else ''
+            assigned   = f'<div style="font-size:0.75rem;color:#888;"><i data-lucide="user" class="icon"></i> {html.escape(item["assigned_to_name"])}</div>' if item['assigned_to_name'] else ''
             tags_html  = ''.join(f'<span style="font-size:0.7rem;background:#e3f2fd;color:#1565c0;border-radius:3px;padding:0.05rem 0.3rem;">{html.escape(t.strip())}</span>' for t in (item['tags'] or '').split(',') if t.strip())
 
             # Status move buttons
-            all_statuses = [('idee','Idee'),('gepland','Gepland'),('klaar','Klaar'),('gepubliceerd','&#10003; Gepubliceerd')]
+            all_statuses = [('idee','Idee'),('gepland','Gepland'),('klaar','Klaar'),('gepubliceerd','<i data-lucide="check" class="icon"></i> Gepubliceerd')]
             move_btns = ' '.join(
                 f'<a href="/comm/content/move?id={item["id"]}&status={s}" class="btn btn-sm btn-secondary" style="font-size:0.68rem;">{l}</a>'
                 for s, l in all_statuses if s != item['status'])
 
-            edit_btn = f'<a href="/comm/content/edit?id={item["id"]}" style="color:#1565c0;font-size:0.78rem;text-decoration:none;margin-right:0.4rem;">&#9998;</a>'
-            del_btn  = f'<a href="/comm/content/delete?id={item["id"]}" style="color:#dc3545;font-size:0.78rem;text-decoration:none;" onclick="return confirm(\'Verwijderen?\');">&#10005;</a>'
+            edit_btn = f'<a href="/comm/content/edit?id={item["id"]}" style="color:#1565c0;font-size:0.78rem;text-decoration:none;margin-right:0.4rem;"><i data-lucide="pencil" class="icon"></i></a>'
+            del_btn  = f'<a href="/comm/content/delete?id={item["id"]}" style="color:#dc3545;font-size:0.78rem;text-decoration:none;" onclick="return confirm(\'Verwijderen?\');"><i data-lucide="x" class="icon"></i></a>'
             task_btn = f'<a href="/comm/content/to-task?id={item["id"]}" class="btn btn-sm" style="background:#1565c0;color:#fff;font-size:0.68rem;margin-top:0.3rem;" onclick="return confirm(\'Als taak toevoegen aan board?\');">→ Taak</a>'
 
             bs = item['board_status'] or ''
@@ -7077,7 +7106,7 @@ function bulkAction(action){
                 <input type="hidden" name="id" value="{item["id"]}">
                 <select name="status" class="form-control" style="display:inline;width:auto;font-size:0.72rem;padding:0.1rem 0.25rem;" onchange="this.form.submit()">
                 {bs_options}</select></form>'''
-            bs_badge = f' <span style="font-size:0.68rem;background:#1565c0;color:#fff;border-radius:3px;padding:0.05rem 0.3rem;">&#9776; {bs.capitalize()}</span>' if bs else ''
+            bs_badge = f' <span style="font-size:0.68rem;background:#1565c0;color:#fff;border-radius:3px;padding:0.05rem 0.3rem;"><i data-lucide="menu" class="icon"></i> {bs.capitalize()}</span>' if bs else ''
 
             return f'''<div style="background:#fff;border-radius:6px;padding:0.6rem 0.7rem;margin-bottom:0.5rem;box-shadow:0 1px 3px rgba(0,0,0,0.1);border-left:3px solid {color};">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;">
@@ -7092,10 +7121,10 @@ function bulkAction(action){
         cs = 'flex:1;min-width:220px;background:#f0f0f0;border-radius:8px;padding:0.75rem;'
         body += '<div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start;">'
         for col_items, col_label, col_badge_color, col_status in [
-            (idee,         '&#128161; Idee',            '#888',    'idee'),
-            (gepland,      '&#128197; Gepland',          '#1565c0', 'gepland'),
-            (klaar,        '&#9989; Klaar',              '#f57f17', 'klaar'),
-            (gepubliceerd, '&#10003; Gepubliceerd',      '#388e3c', 'gepubliceerd'),
+            (idee,         '<i data-lucide="lightbulb" class="icon"></i> Idee',            '#888',    'idee'),
+            (gepland,      '<i data-lucide="calendar" class="icon"></i> Gepland',          '#1565c0', 'gepland'),
+            (klaar,        '<i data-lucide="check-circle" class="icon"></i> Klaar',              '#f57f17', 'klaar'),
+            (gepubliceerd, '<i data-lucide="check" class="icon"></i> Gepubliceerd',      '#388e3c', 'gepubliceerd'),
         ]:
             body += f'<div style="{cs}"><div style="font-weight:bold;margin-bottom:0.75rem;">{col_label} <span style="background:{col_badge_color};color:#fff;border-radius:10px;padding:0.1rem 0.5rem;font-size:0.78rem;">{len(col_items)}</span></div>'
             body += (''.join(_content_card(i) for i in col_items) or '<div style="color:#aaa;font-size:0.85rem;">Leeg</div>') + '</div>'
@@ -7107,12 +7136,12 @@ function bulkAction(action){
         """Render edit form for a content calendar item."""
         def _sel(current, options):
             return ''.join(f'<option value="{v}"{"selected" if current==v else ""}>{l}</option>' for v, l in options)
-        plat_opts = _sel(item['platform'], [('instagram','&#128247; Instagram'),('linkedin','&#128188; LinkedIn'),('website','&#127760; Website'),('email','&#128140; Email'),('overig','&#128204; Overig')])
+        plat_opts = _sel(item['platform'], [('instagram','<i data-lucide="image" class="icon"></i> Instagram'),('linkedin','<i data-lucide="briefcase" class="icon"></i> LinkedIn'),('website','<i data-lucide="globe" class="icon"></i> Website'),('email','<i data-lucide="mail" class="icon"></i> Email'),('overig','<i data-lucide="map-pin" class="icon"></i> Overig')])
         stat_opts = _sel(item['status'], [('idee','Idee'),('gepland','Gepland'),('klaar','Klaar'),('gepubliceerd','Gepubliceerd')])
         memb_opts = '<option value="">Niet toegewezen</option>' + ''.join(
             f'<option value="{m["id"]}"{"selected" if item["assigned_to"]==m["id"] else ""}>{html.escape(m["username"])}</option>' for m in comm_members)
         body = html_header('Content bewerken', True, username, user_id)
-        body += '<h2 class="mt-4">&#9998; Content item bewerken</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="pencil" class="icon"></i> Content item bewerken</h2>'
         body += f'''<div class="card" style="max-width:600px;">
             <form method="POST" action="/comm/content/edit?id={item["id"]}">
                 <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Titel *</label><br>
@@ -7151,7 +7180,7 @@ function bulkAction(action){
             for c in color_options)
 
         body = html_header('Profiel bewerken', True, username, user_id)
-        body += f'<h2 class="mt-4">&#9998; Profiel bewerken — {html.escape(target_user["username"])}</h2>'
+        body += f'<h2 class="mt-4"><i data-lucide="pencil" class="icon"></i> Profiel bewerken — {html.escape(target_user["username"])}</h2>'
         body += f'''<div class="card" style="max-width:560px;">
             <form method="POST" action="/comm/profile/edit?id={target_user["id"]}">
                 <div style="margin-bottom:0.6rem;"><label style="font-weight:bold;">Functietitel</label><br>
@@ -7210,12 +7239,12 @@ function bulkAction(action){
     def _gov_nav(self, active: str, user_id: int) -> str:
         """Return navigation tabs for the governance dashboard."""
         tabs = [
-            ('/gov/board', '&#9776; Board', 'board'),
-            ('/gov/overview', '&#128200; Overzicht', 'overview'),
-            ('/gov/profiles', '&#128101; Personen', 'profiles'),
+            ('/gov/board', '<i data-lucide="menu" class="icon"></i> Board', 'board'),
+            ('/gov/overview', '<i data-lucide="trending-up" class="icon"></i> Overzicht', 'overview'),
+            ('/gov/profiles', '<i data-lucide="users" class="icon"></i> Personen', 'profiles'),
         ]
         if is_admin(user_id):
-            tabs.append(('/gov/cards', '&#9881; Kaartbeheer', 'cards'))
+            tabs.append(('/gov/cards', '<i data-lucide="settings" class="icon"></i> Kaartbeheer', 'cards'))
         parts = []
         for href, label, key in tabs:
             if key == active:
@@ -7316,7 +7345,7 @@ function bulkAction(action){
             phase_map[ph].append(person)
 
         body = html_header('Governance Board', True, username, user_id)
-        body += '<h2 class="mt-4">&#9881; Governance Dashboard</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="settings" class="icon"></i> Governance Dashboard</h2>'
         body += self._gov_nav('board', user_id)
 
         # Stats row
@@ -7334,7 +7363,7 @@ function bulkAction(action){
         # Quick add form
         phase_opts_add = ''.join(f'<option value="{p}">{self._gov_phase_label(p)}</option>' for p in valid_phases)
         body += f'''<div class="card" style="margin-bottom:0.75rem;">
-            <div class="section-title">&#43; Persoon toevoegen</div>
+            <div class="section-title">+ Persoon toevoegen</div>
             <form method="POST" action="/gov/persons/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
                 <div><label style="font-size:0.85rem;">Naam</label><br><input type="text" name="name" class="form-control" required style="min-width:160px;"></div>
                 <div><label style="font-size:0.85rem;">Tags</label><br><input type="text" name="tags" class="form-control" placeholder="komma-gescheiden" style="min-width:140px;"></div>
@@ -7385,7 +7414,7 @@ function bulkAction(action){
                         for item in items:
                             checked = item['id'] in completed_ids_p
                             chk_color = ph2_color
-                            box = f'<span style="display:inline-block;width:14px;height:14px;border:2px solid {chk_color};border-radius:2px;background:{"" + chk_color if checked else "#fff"};text-align:center;line-height:10px;font-size:10px;color:#fff;flex-shrink:0;">{"&#10003;" if checked else ""}</span>'
+                            box = f'<span style="display:inline-block;width:14px;height:14px;border:2px solid {chk_color};border-radius:2px;background:{"" + chk_color if checked else "#fff"};text-align:center;line-height:10px;font-size:10px;color:#fff;flex-shrink:0;">{"<i data-lucide="check" class="icon"></i>" if checked else ""}</span>'
                             strike = 'text-decoration:line-through;color:#aaa;' if checked else ''
                             inline_html += f'<div style="display:flex;align-items:flex-start;gap:0.3rem;margin-bottom:0.2rem;"><a href="/gov/progress/toggle?person_id={person["id"]}&item_id={item["id"]}&redirect=/gov/board" style="text-decoration:none;flex-shrink:0;">{box}</a><span style="font-size:0.78rem;{strike}">{html.escape(item["title"])}</span></div>'
                 body += f'''<div class="gov-card" draggable="true" data-person-id="{person['id']}" data-phase="{ph}"
@@ -7402,8 +7431,8 @@ function bulkAction(action){
                         <div style="font-size:0.7rem;color:#888;margin-top:0.1rem;">{done}/{rel_total} items ({pct}%)</div>
                     </div>
                     <div style="margin-top:0.3rem;display:flex;gap:0.3rem;">
-                        <a href="/gov/persons/edit?id={person['id']}" style="font-size:0.75rem;color:#555;text-decoration:none;">&#9998;</a>
-                        <a href="/gov/persons/delete?id={person['id']}" style="font-size:0.75rem;color:#dc3545;text-decoration:none;" onclick="return confirm('Persoon verwijderen?');">&#128465;</a>
+                        <a href="/gov/persons/edit?id={person['id']}" style="font-size:0.75rem;color:#555;text-decoration:none;"><i data-lucide="pencil" class="icon"></i></a>
+                        <a href="/gov/persons/delete?id={person['id']}" style="font-size:0.75rem;color:#dc3545;text-decoration:none;" onclick="return confirm('Persoon verwijderen?');"><i data-lucide="trash-2" class="icon"></i></a>
                     </div>
                     <div id="gov-inline-{person['id']}" style="display:none;border-top:1px solid #e0e0e0;margin-top:0.4rem;padding-top:0.4rem;max-height:300px;overflow-y:auto;">
                         {inline_html}
@@ -7500,12 +7529,12 @@ function bulkAction(action){
         phase_label = self._gov_phase_label(person['phase'])
         tag_html = self._gov_tag_pills(person['tags'] or '')
 
-        body += f'<h2 class="mt-4">&#128100; {html.escape(person["name"])}</h2>'
+        body += f'<h2 class="mt-4"><i data-lucide="user" class="icon"></i> {html.escape(person["name"])}</h2>'
         body += f'''<div class="card" style="margin-bottom:0.75rem;">
             <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
                 <span style="background:{phase_color};color:#fff;border-radius:12px;padding:0.2rem 0.7rem;font-size:0.9rem;">{phase_label}</span>
                 <div>{tag_html}</div>
-                <a href="/gov/persons/edit?id={person_id}" class="btn btn-sm" style="background:#1565c0;color:#fff;">&#9998; Bewerken</a>
+                <a href="/gov/persons/edit?id={person_id}" class="btn btn-sm" style="background:#1565c0;color:#fff;"><i data-lucide="pencil" class="icon"></i> Bewerken</a>
             </div>'''
         if person['notes']:
             body += f'<div style="margin-top:0.5rem;color:#555;font-size:0.9rem;">{html.escape(person["notes"])}</div>'
@@ -7550,13 +7579,13 @@ function bulkAction(action){
                             norm_content += f'<div style="margin-bottom:0.3rem;"><strong>Norm:</strong> {html.escape(item["norm"])}</div>'
                         if item['middelen']:
                             norm_content += f'<div><strong>Middelen:</strong> {html.escape(item["middelen"])}</div>'
-                        norm_html = f'<details style="display:inline-block;margin-left:0.3rem;"><summary style="cursor:pointer;font-size:0.72rem;color:#1565c0;list-style:none;">&#8505; info</summary><div style="background:#e3f2fd;border-radius:4px;padding:0.4rem 0.6rem;margin-top:0.3rem;font-size:0.78rem;color:#333;max-width:480px;">{norm_content}</div></details>'
+                        norm_html = f'<details style="display:inline-block;margin-left:0.3rem;"><summary style="cursor:pointer;font-size:0.72rem;color:#1565c0;list-style:none;"><i data-lucide="info" class="icon"></i> info</summary><div style="background:#e3f2fd;border-radius:4px;padding:0.4rem 0.6rem;margin-top:0.3rem;font-size:0.78rem;color:#333;max-width:480px;">{norm_content}</div></details>'
                     if checked:
-                        chk_html = f'<a href="/gov/progress/toggle?person_id={person_id}&item_id={item["id"]}" style="text-decoration:none;flex-shrink:0;"><span style="display:inline-block;width:18px;height:18px;border:2px solid {ph_color};border-radius:3px;background:{ph_color};text-align:center;line-height:14px;font-size:13px;color:#fff;">&#10003;</span></a>'
+                        chk_html = f'<a href="/gov/progress/toggle?person_id={person_id}&item_id={item["id"]}" style="text-decoration:none;flex-shrink:0;"><span style="display:inline-block;width:18px;height:18px;border:2px solid {ph_color};border-radius:3px;background:{ph_color};text-align:center;line-height:14px;font-size:13px;color:#fff;"><i data-lucide="check" class="icon"></i></span></a>'
                     else:
                         chk_html = f'<span onclick="govNoteToggle({item["id"]})" style="flex-shrink:0;cursor:pointer;display:inline-block;width:18px;height:18px;border:2px solid {ph_color};border-radius:3px;background:#fff;"></span>'
                     title_style = 'text-decoration:line-through;color:#aaa;' if checked else ''
-                    note_display = f'<div style="font-size:0.75rem;color:#1565c0;background:#e3f2fd;border-radius:3px;padding:0.15rem 0.4rem;margin-top:0.15rem;display:inline-block;">&#128196; {html.escape(item_note)}</div>' if item_note else ''
+                    note_display = f'<div style="font-size:0.75rem;color:#1565c0;background:#e3f2fd;border-radius:3px;padding:0.15rem 0.4rem;margin-top:0.15rem;display:inline-block;"><i data-lucide="file-text" class="icon"></i> {html.escape(item_note)}</div>' if item_note else ''
                     edit_form = f'''<div id="gedit-{item["id"]}" style="display:none;background:#f8f9fa;border-radius:4px;padding:0.5rem;margin-top:0.3rem;">
                         <form method="POST" action="/gov/items/quick-edit">
                         <input type="hidden" name="item_id" value="{item["id"]}"><input type="hidden" name="person_id" value="{person_id}">
@@ -7575,7 +7604,7 @@ function bulkAction(action){
                             <input type="hidden" name="item_id" value="{item["id"]}">
                             <input type="hidden" name="redirect" value="/gov/person?id={person_id}">
                             <textarea name="note" class="form-control" rows="2" placeholder="Notitie bij afronding (optioneel)..." style="font-size:0.85rem;margin-bottom:0.25rem;"></textarea>
-                            <button type="submit" class="btn btn-sm" style="font-size:0.8rem;background:#388e3c;color:#fff;">&#10003; Afronden</button>
+                            <button type="submit" class="btn btn-sm" style="font-size:0.8rem;background:#388e3c;color:#fff;"><i data-lucide="check" class="icon"></i> Afronden</button>
                             <button type="button" onclick="govNoteToggle({item["id"]})" style="font-size:0.8rem;background:none;border:none;cursor:pointer;color:#555;margin-left:0.4rem;">Annuleren</button>
                             </form></div>'''
                     body += f'''<div style="margin-bottom:0.45rem;">
@@ -7583,7 +7612,7 @@ function bulkAction(action){
                             {chk_html}
                             <div style="flex:1;">
                                 <span style="font-size:0.9rem;{title_style}">{html.escape(item["title"])}</span>{norm_html}
-                                <button onclick="govEditToggle({item["id"]})" style="background:none;border:none;cursor:pointer;font-size:0.72rem;color:#bbb;padding:0;margin-left:0.3rem;" title="Bewerken">&#9998;</button>
+                                <button onclick="govEditToggle({item["id"]})" style="background:none;border:none;cursor:pointer;font-size:0.72rem;color:#bbb;padding:0;margin-left:0.3rem;" title="Bewerken"><i data-lucide="pencil" class="icon"></i></button>
                                 {f'<div style="font-size:0.75rem;color:#888;">{html.escape(item["description"])}</div>' if item["description"] else ""}
                                 {note_display}
                                 {edit_form}
@@ -7620,12 +7649,12 @@ function bulkAction(action){
         for note in all_notes:
             notes_by_person.setdefault(note['person_id'], []).append(note)
 
-        type_labels = {'coaching': '&#128172; Coaching', 'intervisie': '&#128101; Intervisie', 'aandachtspunt': '&#127919; Aandachtspunt'}
+        type_labels = {'coaching': '<i data-lucide="message-circle" class="icon"></i> Coaching', 'intervisie': '<i data-lucide="users" class="icon"></i> Intervisie', 'aandachtspunt': '<i data-lucide="target" class="icon"></i> Aandachtspunt'}
         type_colors = {'coaching': '#1565c0', 'intervisie': '#7b1fa2', 'aandachtspunt': '#ef6c00'}
         pt_colors = {'communicatie': '#5C7A5A', 'werkveld': '#388e3c', 'evenementen': '#7b1fa2', 'onderwijs': '#1565c0'}
 
         body = html_header('Governance Personen', True, username, user_id)
-        body += '<h2 class="mt-4">&#128101; Personen &amp; Profiel</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="users" class="icon"></i> Personen &amp; Profiel</h2>'
         body += self._gov_nav('profiles', user_id)
 
         if not all_persons:
@@ -7638,7 +7667,7 @@ function bulkAction(action){
                 pt = person['project_type'] or ''
                 pt_badge = f'<span style="font-size:0.75rem;background:{pt_colors.get(pt,"#888")};color:#fff;border-radius:3px;padding:0.1rem 0.4rem;margin-left:0.4rem;">{pt.capitalize()}</span>' if pt else ''
                 consent = person['consent_given']
-                consent_icon = '&#9989;' if consent else '&#9744;'
+                consent_icon = '<i data-lucide="check-circle" class="icon"></i>' if consent else '<i data-lucide="square" class="icon"></i>'
                 consent_color = '#388e3c' if consent else '#888'
                 consent_label = 'Akkoord gegeven' if consent else 'Nog geen akkoord'
 
@@ -7662,20 +7691,20 @@ function bulkAction(action){
                 # Aandachtspunten (prominent)
                 if aandachtspunten:
                     body += '<div style="margin-top:0.6rem;">'
-                    body += '<div style="font-size:0.85rem;font-weight:bold;color:#ef6c00;margin-bottom:0.3rem;">&#127919; Persoonlijke aandachtspunten</div>'
+                    body += '<div style="font-size:0.85rem;font-weight:bold;color:#ef6c00;margin-bottom:0.3rem;"><i data-lucide="target" class="icon"></i> Persoonlijke aandachtspunten</div>'
                     for note in aandachtspunten:
                         body += f'''<div style="background:#fff8e1;border-left:3px solid #ef6c00;padding:0.4rem 0.6rem;margin-bottom:0.3rem;border-radius:0 4px 4px 0;font-size:0.88rem;display:flex;justify-content:space-between;align-items:flex-start;">
                             <div>
                                 <span>{html.escape(note["content"])}</span>
                                 <div style="font-size:0.72rem;color:#aaa;margin-top:0.15rem;">{(note["created_at"] or "")[:10]} — {html.escape(note["author"] or "?")}</div>
                             </div>
-                            <a href="/gov/notes/delete?id={note['id']}" style="color:#dc3545;font-size:0.75rem;text-decoration:none;flex-shrink:0;margin-left:0.5rem;" onclick="return confirm('Verwijderen?');">&#128465;</a>
+                            <a href="/gov/notes/delete?id={note['id']}" style="color:#dc3545;font-size:0.75rem;text-decoration:none;flex-shrink:0;margin-left:0.5rem;" onclick="return confirm('Verwijderen?');"><i data-lucide="trash-2" class="icon"></i></a>
                         </div>'''
                     body += '</div>'
 
                 # Coaching + intervisie notities (collapsible)
                 if other_notes:
-                    body += f'<details style="margin-top:0.5rem;"><summary style="cursor:pointer;font-size:0.85rem;color:#555;">&#128196; {len(other_notes)} notitie(s) — klik om te tonen</summary>'
+                    body += f'<details style="margin-top:0.5rem;"><summary style="cursor:pointer;font-size:0.85rem;color:#555;"><i data-lucide="file-text" class="icon"></i> {len(other_notes)} notitie(s) — klik om te tonen</summary>'
                     body += '<div style="margin-top:0.4rem;">'
                     for note in other_notes:
                         ncolor = type_colors.get(note['note_type'], '#888')
@@ -7686,12 +7715,12 @@ function bulkAction(action){
                                 <span>{html.escape(note["content"])}</span>
                                 <div style="font-size:0.72rem;color:#aaa;margin-top:0.15rem;">{(note["created_at"] or "")[:10]} — {html.escape(note["author"] or "?")}</div>
                             </div>
-                            <a href="/gov/notes/delete?id={note['id']}" style="color:#dc3545;font-size:0.75rem;text-decoration:none;flex-shrink:0;margin-left:0.5rem;" onclick="return confirm('Verwijderen?');">&#128465;</a>
+                            <a href="/gov/notes/delete?id={note['id']}" style="color:#dc3545;font-size:0.75rem;text-decoration:none;flex-shrink:0;margin-left:0.5rem;" onclick="return confirm('Verwijderen?');"><i data-lucide="trash-2" class="icon"></i></a>
                         </div>'''
                     body += '</div></details>'
 
                 # Add note form
-                body += f'''<details style="margin-top:0.6rem;"><summary style="cursor:pointer;font-size:0.85rem;color:#1565c0;">&#43; Notitie / aandachtspunt toevoegen</summary>
+                body += f'''<details style="margin-top:0.6rem;"><summary style="cursor:pointer;font-size:0.85rem;color:#1565c0;">+ Notitie / aandachtspunt toevoegen</summary>
                     <div style="margin-top:0.4rem;background:#f8f9fa;border-radius:4px;padding:0.6rem;">
                         <form method="POST" action="/gov/notes/add">
                             <input type="hidden" name="person_id" value="{pid}">
@@ -7699,9 +7728,9 @@ function bulkAction(action){
                                 <div>
                                     <label style="font-size:0.8rem;display:block;margin-bottom:0.15rem;">Type</label>
                                     <select name="note_type" class="form-control" style="font-size:0.85rem;">
-                                        <option value="coaching">&#128172; Coaching</option>
-                                        <option value="intervisie">&#128101; Intervisie</option>
-                                        <option value="aandachtspunt">&#127919; Aandachtspunt</option>
+                                        <option value="coaching"><i data-lucide="message-circle" class="icon"></i> Coaching</option>
+                                        <option value="intervisie"><i data-lucide="users" class="icon"></i> Intervisie</option>
+                                        <option value="aandachtspunt"><i data-lucide="target" class="icon"></i> Aandachtspunt</option>
                                     </select>
                                 </div>
                                 <div style="flex:1;min-width:220px;">
@@ -7743,7 +7772,7 @@ function bulkAction(action){
             avg_pct = round(total_pct_sum / (total_persons * total_items) * 100) if total_persons else 0
 
         body = html_header('Governance Overzicht', True, username, user_id)
-        body += '<h2 class="mt-4">&#128200; Governance Overzicht</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="trending-up" class="icon"></i> Governance Overzicht</h2>'
         body += self._gov_nav('overview', user_id)
 
         # Phase distribution
@@ -7809,7 +7838,7 @@ function bulkAction(action){
             cards_by_phase.setdefault(card['phase'], []).append(card)
 
         body = html_header('Governance Kaartbeheer', True, username, user_id)
-        body += '<h2 class="mt-4">&#9881; Kaartbeheer</h2>'
+        body += '<h2 class="mt-4"><i data-lucide="settings" class="icon"></i> Kaartbeheer</h2>'
         body += self._gov_nav('cards', user_id)
 
         # Add card form
@@ -7843,8 +7872,8 @@ function bulkAction(action){
                     <div style="display:flex;justify-content:space-between;align-items:center;">
                         <div><strong>{html.escape(card["title"])}</strong>{pt_badge}</div>
                         <div>
-                            <a href="/gov/cards/edit?id={card['id']}" class="btn btn-sm btn-secondary">&#9998; Bewerken</a>
-                            <a href="/gov/cards/delete?id={card['id']}" class="btn btn-sm btn-danger" style="margin-left:0.3rem;" onclick="return confirm('Kaart verwijderen?');">&#128465;</a>
+                            <a href="/gov/cards/edit?id={card['id']}" class="btn btn-sm btn-secondary"><i data-lucide="pencil" class="icon"></i> Bewerken</a>
+                            <a href="/gov/cards/delete?id={card['id']}" class="btn btn-sm btn-danger" style="margin-left:0.3rem;" onclick="return confirm('Kaart verwijderen?');"><i data-lucide="trash-2" class="icon"></i></a>
                         </div>
                     </div>'''
                 if card['description']:
@@ -7858,7 +7887,7 @@ function bulkAction(action){
                         body += f'''<li style="margin-bottom:0.2rem;font-size:0.9rem;">
                             {html.escape(item["title"])}
                             {f'<span style="font-size:0.8rem;color:#888;"> — {html.escape(item["description"])}</span>' if item["description"] else ""}
-                            <a href="/gov/items/delete?id={item['id']}" style="color:#dc3545;margin-left:0.4rem;font-size:0.75rem;" onclick="return confirm('Item verwijderen?');">&#128465;</a>
+                            <a href="/gov/items/delete?id={item['id']}" style="color:#dc3545;margin-left:0.4rem;font-size:0.75rem;" onclick="return confirm('Item verwijderen?');"><i data-lucide="trash-2" class="icon"></i></a>
                         </li>'''
                     body += '</ul>'
 
@@ -7868,7 +7897,7 @@ function bulkAction(action){
                     <div><input type="text" name="title" class="form-control" placeholder="Item titel" required style="min-width:160px;"></div>
                     <div><input type="text" name="description" class="form-control" placeholder="Beschrijving (optioneel)" style="min-width:160px;"></div>
                     <div><input type="number" name="order_index" value="0" class="form-control" style="width:65px;" placeholder="Volgorde"></div>
-                    <div><button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff;">&#43; Item</button></div>
+                    <div><button type="submit" class="btn btn-sm" style="background:#1565c0;color:#fff;">+ Item</button></div>
                 </form>'''
                 body += '</div>'
 
