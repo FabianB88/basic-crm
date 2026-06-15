@@ -4639,41 +4639,40 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             due_tasks = cur.fetchall()
         body = html_header('Dashboard', True, username, user_id)
         body += '<h2 class="mt-4">Dashboard</h2>'
-        # Stats row
-        def _stat(val, label, color='#5C7A5A'):
-            return f'<div class="card" style="flex:1;min-width:130px;text-align:center;padding:0.75rem;"><div style="font-size:1.8rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.85rem;color:#7A6E66;">{label}</div></div>'
-        body += f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+        # Stats — één rij, neutrale kleur tenzij kritiek
+        def _stat(val, label, color='#1C1713'):
+            return (f'<div class="card" style="flex:1;min-width:110px;text-align:center;padding:0.8rem 0.5rem;">'
+                    f'<div style="font-size:1.55rem;font-weight:700;color:{color};line-height:1.1;">{val}</div>'
+                    f'<div style="font-size:0.72rem;color:#B0A49A;margin-top:0.2rem;text-transform:uppercase;letter-spacing:0.05em;">{label}</div>'
+                    f'</div>')
+        body += '<div style="display:flex;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.6rem;">'
         body += _stat(total_customers, 'Klanten')
-        body += _stat(total_open_tasks, 'Open taken', '#B5916A')
-        body += _stat(total_overdue, 'Verlopen taken', '#C0392B' if total_overdue else '#5C7A5A')
-        body += _stat(interactions_this_month, 'Interacties deze maand', '#7A8FA6')
-        body += '</div>'
-        # Verbinding stats
-        vb_items = [
-            ('ambassadeur', '#5C7A5A', '#EDF3EC'),
-            ('betrokken', '#7A8FA6', '#EDF3EC'),
-            ('niet betrokken', '#888', '#f5f5f5'),
-        ]
-        body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
-        for vb_key, vb_color, vb_bg in vb_items:
+        body += _stat(total_open_tasks, 'Open taken', '#B5916A' if total_open_tasks else '#1C1713')
+        body += _stat(total_overdue, 'Verlopen', '#C0392B' if total_overdue else '#1C1713')
+        body += _stat(interactions_this_month, 'Interacties')
+        # Verbinding stats in dezelfde rij
+        vb_items = [('ambassadeur', '#5C7A5A'), ('betrokken', '#7A8FA6'), ('niet betrokken', '#B0A49A')]
+        for vb_key, vb_color in vb_items:
             cnt = verbinding_stats.get(vb_key, 0)
-            body += f'<a href="/customers?verbinding={urllib.parse.quote(vb_key)}" style="flex:1;min-width:130px;text-decoration:none;"><div class="card" style="text-align:center;padding:0.75rem;background:{vb_bg};border-left:4px solid {vb_color};"><div style="font-size:1.8rem;font-weight:bold;color:{vb_color};">{cnt}</div><div style="font-size:0.85rem;color:#7A6E66;">{vb_key.capitalize()}</div></div></a>'
+            body += (f'<a href="/customers?verbinding={urllib.parse.quote(vb_key)}" style="flex:1;min-width:100px;text-decoration:none;">'
+                     f'<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:3px solid {vb_color};">'
+                     f'<div style="font-size:1.55rem;font-weight:700;color:#1C1713;line-height:1.1;">{cnt}</div>'
+                     f'<div style="font-size:0.72rem;color:#B0A49A;margin-top:0.2rem;text-transform:uppercase;letter-spacing:0.05em;">{vb_key.capitalize()}</div>'
+                     f'</div></a>')
         body += '</div>'
         # Per-user stats table — collapsible
-        body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-weight:bold;padding:0.6rem 1rem;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);"><i data-lucide=trending-up class=icon></i> Statistieken per gebruiker (' + this_month + ')</summary>'
+        body += '<details style="margin-bottom:0.75rem;"><summary style="cursor:pointer;font-size:0.85rem;font-weight:600;padding:0.55rem 0.85rem;background:#fff;border-radius:8px;border:1px solid #E4DDD6;color:#7A6E66;list-style:none;"><i data-lucide=trending-up class=icon></i> Statistieken per gebruiker (' + this_month + ')</summary>'
         body += '<div class="card" style="margin-top:0.25rem;">'
-        body += '<table><thead><tr><th>Gebruiker</th><th>Open taken</th><th>Verlopen taken</th><th>Interacties deze maand</th><th>Ingevoerde klanten</th></tr></thead><tbody>'
+        body += '<table><thead><tr><th>Gebruiker</th><th>Open</th><th>Verlopen</th><th>Interacties</th><th>Klanten</th></tr></thead><tbody>'
         for us in user_task_stats:
             inter_m = user_inter_stats.get(us['id'], 0)
             cust_m = user_customer_stats.get(us['id'], 0)
-            overdue_col = '#C0392B' if (us['overdue_tasks'] or 0) > 0 else '#5C7A5A'
-            body += f'''<tr>
-                <td><a href="/users/profile?id={us['id']}" style="color:#5C7A5A;">{html.escape(us['username'])}</a></td>
-                <td>{us['open_tasks'] or 0}</td>
-                <td style="color:{overdue_col};font-weight:bold;">{us['overdue_tasks'] or 0}</td>
-                <td>{inter_m}</td>
-                <td>{cust_m}</td>
-            </tr>'''
+            ov = us['overdue_tasks'] or 0
+            overdue_col = '#C0392B' if ov > 0 else '#1C1713'
+            body += (f'<tr><td><a href="/users/profile?id={us["id"]}">{html.escape(us["username"])}</a></td>'
+                     f'<td>{us["open_tasks"] or 0}</td>'
+                     f'<td style="color:{overdue_col};font-weight:{"600" if ov > 0 else "400"};">{ov}</td>'
+                     f'<td>{inter_m}</td><td>{cust_m}</td></tr>')
         body += '</tbody></table></div></details>'
         # Tasks due soon section
         today_iso = datetime.date.today().isoformat()
@@ -4682,16 +4681,24 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             for t in due_tasks:
                 date_str = t['due_date'] if t['due_date'] else ''
                 is_overdue = date_str < today_iso
-                date_color = '#C0392B' if is_overdue else '#555'
-                overdue_label = ' <span style="background:#C0392B;color:#fff;font-size:0.75rem;border-radius:3px;padding:0.1rem 0.4rem;">verlopen</span>' if is_overdue else ''
-                cust_link = f"<a href='/customers/view?id={t['customer_id']}' style='color:#5C7A5A;font-weight:bold;'>{html.escape(t['customer_name'])}</a>"
+                date_color = '#C0392B' if is_overdue else '#B0A49A'
+                overdue_label = (' <span style="font-size:0.7rem;color:#C0392B;border:1px solid #fecaca;'
+                                 'border-radius:3px;padding:0.05rem 0.35rem;background:#fef2f2;">verlopen</span>'
+                                 if is_overdue else '')
+                cust_link = f"<a href='/customers/view?id={t['customer_id']}' style='font-weight:600;'>{html.escape(t['customer_name'])}</a>"
                 assigned_to = html.escape(t['assigned_to']) if t['assigned_to'] else ''
-                resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=dashboard' style='float:right;background:#5C7A5A;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;'><i data-lucide=check class=icon></i> Resolve</a>"
-                tasks_html += f"<div style='border-bottom:1px solid #EDE8E3; padding:0.5rem 0;'>{resolve_btn}{html.escape(t['title'])}{overdue_label}<br>{cust_link} &middot; <small style='color:#B0A49A;'>{assigned_to}</small> &middot; <small style='color:{date_color};'><i data-lucide=calendar class=icon></i> {date_str}</small></div>"
+                resolve_btn = (f"<a href='/tasks/resolve?id={t['task_id']}&from=dashboard' "
+                               f"style='float:right;background:#F2EEE9;color:#7A6E66;border:1px solid #E4DDD6;"
+                               f"border-radius:5px;padding:0.15rem 0.55rem;font-size:0.78rem;text-decoration:none;'>"
+                               f"<i data-lucide=check class=icon></i> Resolve</a>")
+                tasks_html += (f"<div style='border-bottom:1px solid #EDE8E3;padding:0.65rem 0;'>"
+                               f"{resolve_btn}{html.escape(t['title'])}{overdue_label}<br>"
+                               f"{cust_link} &middot; <small style='color:#B0A49A;'>{assigned_to}</small>"
+                               f" &middot; <small style='color:{date_color};'><i data-lucide=calendar class=icon></i> {date_str}</small></div>")
         else:
-            tasks_html = '<p>Geen openstaande taken.</p>'
+            tasks_html = '<p style="color:#B0A49A;font-size:0.875rem;">Geen openstaande taken.</p>'
         body += f'''<div class="card">
-            <div class="section-title">Openstaande taken (komende 14 dagen + verlopen) <a href="/tasks/archive" style="float:right;font-size:0.85rem;color:#5C7A5A;font-weight:normal;"><i data-lucide=archive class=icon></i> Archief voltooide taken</a></div>
+            <div class="section-title">Openstaande taken <a href="/tasks/archive" style="float:right;font-size:0.82rem;color:#B0A49A;font-weight:normal;"><i data-lucide=archive class=icon></i> Archief</a></div>
             {tasks_html}
         </div>'''
         # Recent notes
