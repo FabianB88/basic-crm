@@ -1248,50 +1248,73 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     styles = '''
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     *, *::before, *::after { box-sizing: border-box; }
-    body { margin: 0; font-family: Inter, Arial, sans-serif; background-color: #F7F4F0; color: #1C1713; padding-top: 56px; font-size: 0.9rem; line-height: 1.5; }
+    body { margin: 0; font-family: Inter, Arial, sans-serif; background: #F7F4F0; color: #1C1713; font-size: 0.9rem; line-height: 1.5; }
 
-    /* Navbar */
-    .navbar { background-color: #fff; color: #1C1713; position: fixed; top: 0; width: 100%; height: 52px; display: flex; align-items: center; padding: 0 1.25rem; border-bottom: 1px solid #E4DDD6; z-index: 1000; }
-    .navbar a { color: #7A6E66; text-decoration: none; margin-right: 0.85rem; font-weight: 500; font-size: 0.85rem; transition: color 0.12s; }
-    .navbar a:hover { color: #5C7A5A; }
-    .navbar .brand { color: #1C1713; font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; margin-right: 1.5rem; }
-    .navbar .spacer { flex-grow: 1; }
-    .navbar .nav-user { color: #7A6E66; font-size: 0.82rem; }
+    /* ── Sidebar ── */
+    .sidebar { position: fixed; top: 0; left: 0; height: 100vh; width: 220px; background: #EFEBE5; border-right: 1px solid #E4DDD6; display: flex; flex-direction: column; z-index: 100; overflow: hidden; }
+    .sidebar-header { padding: 1rem 1rem 0.6rem; flex-shrink: 0; }
+    .brand { color: #1C1713; font-weight: 700; font-size: 0.92rem; text-decoration: none; letter-spacing: -0.01em; display: block; }
+    .sidebar-search { padding: 0 0.75rem 0.6rem; flex-shrink: 0; }
+    .sidebar-search form { display: flex; }
+    .sidebar-search input { flex: 1; min-width: 0; padding: 0.32rem 0.6rem; border: 1px solid #E4DDD6; border-right: none; border-radius: 6px 0 0 6px; font-size: 0.8rem; background: #fff; color: #1C1713; outline: none; font-family: inherit; }
+    .sidebar-search input:focus { border-color: #5C7A5A; }
+    .sidebar-search button { padding: 0.32rem 0.6rem; background: #5C7A5A; color: #fff; border: none; border-radius: 0 6px 6px 0; cursor: pointer; display: flex; align-items: center; flex-shrink: 0; }
+    .sidebar-nav { flex: 1; overflow-y: auto; padding: 0.1rem 0.6rem 0.5rem; }
+    .nav-section-label { font-size: 0.67rem; font-weight: 700; color: #B0A49A; text-transform: uppercase; letter-spacing: 0.09em; padding: 0.75rem 0.5rem 0.2rem; }
+    .nav-link { display: flex; align-items: center; gap: 0.55rem; padding: 0.42rem 0.65rem; border-radius: 7px; color: #7A6E66; text-decoration: none; font-size: 0.875rem; font-weight: 500; transition: background 0.1s, color 0.1s; margin-bottom: 1px; }
+    .nav-link:hover { background: rgba(0,0,0,0.06); color: #1C1713; }
+    .nav-link.active { background: #D0E3CF; color: #3d5c3b; font-weight: 600; }
+    .nav-badge { margin-left: auto; background: #5C7A5A; color: #fff; border-radius: 10px; font-size: 0.68rem; font-weight: 700; padding: 0.05rem 0.45rem; min-width: 18px; text-align: center; display: none; }
+    .sidebar-footer { flex-shrink: 0; padding: 0.5rem 0.6rem 0.75rem; border-top: 1px solid #E4DDD6; }
+    .sidebar-user { font-size: 0.75rem; color: #B0A49A; padding: 0.25rem 0.65rem 0.35rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    /* Layout */
-    .container { max-width: 980px; margin: 0 auto; padding: 1.25rem 1rem; }
+    /* ── Main content ── */
+    .main { margin-left: 220px; min-height: 100vh; }
+    .container { max-width: 960px; margin: 0 auto; padding: 1.5rem 1.25rem; }
 
-    /* Cards */
-    .card { background-color: #fff; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #E4DDD6; }
+    /* ── Mobile topbar ── */
+    .mobile-topbar { display: none; position: fixed; top: 0; left: 0; right: 0; height: 50px; background: #fff; border-bottom: 1px solid #E4DDD6; align-items: center; padding: 0 1rem; gap: 0.75rem; z-index: 200; }
+    .hamburger { background: none; border: none; cursor: pointer; color: #7A6E66; padding: 0.3rem; display: flex; align-items: center; }
+    .sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 99; }
+    @media (max-width: 768px) {
+        .mobile-topbar { display: flex; }
+        .main { margin-left: 0; padding-top: 50px; }
+        .sidebar { transform: translateX(-100%); transition: transform 0.22s ease; z-index: 150; }
+        .sidebar.open { transform: translateX(0); box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
+        .sidebar-backdrop.open { display: block; }
+    }
+
+    /* ── Cards ── */
+    .card { background: #fff; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #E4DDD6; }
     .section-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 0.75rem; color: #7A6E66; text-transform: uppercase; letter-spacing: 0.06em; }
 
-    /* Action buttons (pill style) */
+    /* ── Action buttons ── */
     .action-buttons a { display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid #E4DDD6; border-radius: 6px; padding: 0.3rem 0.75rem; color: #7A6E66; background: #F7F4F0; text-decoration: none; margin-right: 0.4rem; font-size: 0.82rem; font-weight: 500; }
     .action-buttons a:hover { border-color: #5C7A5A; color: #5C7A5A; background: #EDF3EC; }
 
-    /* Lucide icons */
+    /* ── Lucide icons ── */
     .icon { width: 14px; height: 14px; vertical-align: -2px; display: inline-block; flex-shrink: 0; stroke-width: 1.75; }
     .icon-sm { width: 12px; height: 12px; vertical-align: -1px; }
-    .icon-nav { width: 13px; height: 13px; vertical-align: -2px; stroke-width: 2; }
+    .icon-nav { width: 16px; height: 16px; vertical-align: -3px; stroke-width: 2; flex-shrink: 0; }
 
-    /* Tables */
+    /* ── Tables ── */
     table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
     th, td { padding: 0.55rem 0.75rem; text-align: left; border-bottom: 1px solid #EDE8E3; }
-    th { background-color: #F7F4F0; font-weight: 600; color: #B0A49A; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    th { background: #F7F4F0; font-weight: 600; color: #B0A49A; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background-color: #FAFAF9; }
+    tr:hover td { background: #FAFAF9; }
     .text-end { text-align: right; }
 
-    /* Buttons */
+    /* ── Buttons ── */
     .btn { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.85rem; border: none; border-radius: 7px; font-size: 0.85rem; font-weight: 500; cursor: pointer; text-decoration: none; font-family: inherit; transition: opacity 0.12s; }
     .btn:hover { opacity: 0.88; }
-    .btn-primary { background-color: #5C7A5A; color: #fff; }
-    .btn-secondary { background-color: #F2EEE9; color: #7A6E66; border: 1px solid #E4DDD6; }
-    .btn-danger { background-color: #fef2f2; color: #C0392B; border: 1px solid #fecaca; }
+    .btn-primary { background: #5C7A5A; color: #fff; }
+    .btn-secondary { background: #F2EEE9; color: #7A6E66; border: 1px solid #E4DDD6; }
+    .btn-danger { background: #fef2f2; color: #C0392B; border: 1px solid #fecaca; }
     .btn-sm { font-size: 0.78rem; padding: 0.2rem 0.6rem; }
     .btn-link { background: none; color: #5C7A5A; border: none; padding: 0.35rem 0.5rem; font-size: 0.85rem; cursor: pointer; text-decoration: none; font-family: inherit; }
 
-    /* Forms */
+    /* ── Forms ── */
     .form-control, .form-select { padding: 0.42rem 0.7rem; border: 1px solid #E4DDD6; border-radius: 7px; width: 100%; font-family: inherit; font-size: 0.875rem; background: #fff; color: #1C1713; outline: none; }
     .form-control:focus, .form-select:focus { border-color: #5C7A5A; box-shadow: 0 0 0 3px rgba(92,122,90,0.10); }
     .form-label { display: block; font-size: 0.8rem; font-weight: 600; color: #7A6E66; margin-bottom: 0.3rem; }
@@ -1299,79 +1322,78 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     .mt-3 { margin-top: 0.75rem; }
     .mt-4 { margin-top: 1rem; }
 
-    /* Search in navbar */
-    .btn-outline-success { border: 1px solid #E4DDD6; color: #5C7A5A; background: transparent; border-radius: 0 7px 7px 0; padding: 0.3rem 0.6rem; cursor: pointer; font-size: 0.85rem; }
-    .btn-outline-success:hover { background: #EDF3EC; }
-
-    /* Utilities */
+    /* ── Utilities ── */
     .d-flex { display: flex; }
     .me-2 { margin-right: 0.5rem; }
     a { color: #5C7A5A; text-decoration: none; }
     a:hover { color: #5C7A5A; }
     h2 { font-size: 1.15rem; font-weight: 700; color: #1C1713; margin: 0 0 0.5rem; letter-spacing: -0.01em; }
+    .btn-outline-success { border: 1px solid #E4DDD6; color: #5C7A5A; background: transparent; border-radius: 0 7px 7px 0; padding: 0.3rem 0.6rem; cursor: pointer; font-size: 0.85rem; }
+    .btn-outline-success:hover { background: #EDF3EC; }
     '''
-    # Determine navigation links based on login state.  We omit the
-    # registration link unless there are no users yet; see users_exist() below.
+    # Build sidebar navigation based on login state.
     if logged_in:
         try:
             uid_int = int(user_id) if user_id is not None else None
         except Exception:
             uid_int = None
-        _is_admin    = uid_int is not None and is_admin(uid_int)
-        _is_comm     = uid_int is not None and is_comm_member(uid_int)
-        _is_gov      = uid_int is not None and is_gov_member(uid_int)
-        _restricted  = (_is_comm or _is_gov) and not _is_admin
+        _is_admin = uid_int is not None and is_admin(uid_int)
+        _is_comm  = uid_int is not None and is_comm_member(uid_int)
+        _is_gov   = uid_int is not None and is_gov_member(uid_int)
 
-        crm_links = ["<a href='/dashboard'>Dashboard</a>", "<a href='/customers'>Klanten</a>"]
+        # Build sidebar nav sections
+        sidebar_nav = "<div class='nav-section-label'>WERKRUIMTE</div>"
+        sidebar_nav += "<a href='/dashboard' class='nav-link'><i data-lucide=home class=icon></i> Dashboard</a>"
+        sidebar_nav += "<a href='/customers' class='nav-link'><i data-lucide=users class=icon></i> Klanten</a>"
+        sidebar_nav += "<a href='/messages' class='nav-link'><i data-lucide=message-circle class=icon></i> Berichten <span class='nav-badge' id='msg-badge'></span></a>"
+        sidebar_nav += "<a href='/tasks/search' class='nav-link'><i data-lucide=check-square class=icon></i> Taken</a>"
+
         if _is_admin:
-            crm_links.append("<a href='/users'>Gebruikers</a>")
-            crm_links.append("<a href='/fields'>Velden</a>")
-            crm_links.append("<a href='/reports'>Rapporten</a>")
-        crm_links.append("<a href='/import'>Importeren</a>")
-        crm_links.append("<a href='/tasks/search'>Taken zoeken</a>")
-
-        if _restricted:
-            # Restricted gebruikers: toon comm/gov links; CRM verbergbaar via toggle
-            restricted_links = ''
-            if _is_comm:
-                restricted_links += "<a href='/comm/board'><i data-lucide=users class=icon></i> Comm</a>"
-            if _is_gov:
-                restricted_links += "<a href='/gov/board'><i data-lucide=settings class=icon></i> Gov</a>"
-            nav_links_left = (
-                restricted_links
-                + f"<span id='crm-nav-links' style='display:none;'>{''.join(crm_links)}</span>"
-                + "<button id='crm-toggle-btn' onclick='toggleCRM()' "
-                + "style='background:#F2EEE9;border:1px solid #E4DDD6;"
-                + "color:#7A6E66;border-radius:6px;padding:0.2rem 0.65rem;cursor:pointer;"
-                + "font-size:0.8rem;margin-left:0.4rem;'><i data-lucide=link-2 class=icon></i> CRM</button>"
-            )
+            sidebar_nav += "<div class='nav-section-label'>BEHEER</div>"
+            sidebar_nav += "<a href='/users' class='nav-link'><i data-lucide=user class=icon></i> Gebruikers</a>"
+            sidebar_nav += "<a href='/fields' class='nav-link'><i data-lucide=sliders class=icon></i> Velden</a>"
+            sidebar_nav += "<a href='/reports' class='nav-link'><i data-lucide=bar-chart-2 class=icon></i> Rapporten</a>"
+            sidebar_nav += "<a href='/import' class='nav-link'><i data-lucide=upload class=icon></i> Importeren</a>"
         else:
-            nav_links_left = ''.join(crm_links)
-            if _is_comm:
-                nav_links_left += "<a href='/comm/board'><i data-lucide=users class=icon></i> Comm</a>"
-            if _is_gov:
-                nav_links_left += "<a href='/gov/board'><i data-lucide=settings class=icon></i> Gov</a>"
+            sidebar_nav += "<a href='/import' class='nav-link'><i data-lucide=upload class=icon></i> Importeren</a>"
 
-        profile_link = f"<a href='/users/profile?id={user_id}'>Mijn profiel</a>" if user_id else ''
-        nav_links_right = (f"{profile_link} <span style='color:#E4DDD6'>|</span> <span>Ingelogd als {html.escape(username)}</span>"
-                           " <a href='/account/password'><i data-lucide=key-round class=icon></i> Wachtwoord</a>"
-                           " <a href='/logout'>Uitloggen</a>")
-        nav_search = '''<form method="get" action="/customers" style="display:flex;align-items:center;margin:0 1rem;">
-            <input type="search" name="q" placeholder="Klant zoeken..." style="padding:0.25rem 0.6rem;border:1px solid #E4DDD6;border-right:none;border-radius:6px 0 0 6px;font-size:0.82rem;width:150px;outline:none;background:#F7F4F0;color:#1C1713;">
-            <button type="submit" style="padding:0.25rem 0.6rem;background:#5C7A5A;color:#fff;border:none;border-radius:0 6px 6px 0;cursor:pointer;font-size:0.82rem;"><i data-lucide=search class=icon></i></button>
-        </form>'''
-        popup_html = '''<div id="msg-popup" style="display:none;position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.2);padding:1rem 1.2rem;min-width:280px;max-width:360px;border-left:4px solid #5C7A5A;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
-    <strong style="color:#5C7A5A;"><i data-lucide=message-circle class=icon></i> Nieuw bericht van <span id="msg-popup-from"></span></strong>
-    <button onclick="closeMsgPopup()" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:#B0A49A;"><i data-lucide=x class=icon></i></button>
-  </div>
-  <div id="msg-popup-text" style="font-size:0.9rem;color:#1C1713;margin-bottom:0.6rem;"></div>
-  <a id="msg-popup-link" href="/messages" style="background:#5C7A5A;color:#fff;border-radius:4px;padding:0.25rem 0.8rem;text-decoration:none;font-size:0.85rem;">Bekijken</a>
-</div>'''
+        if _is_comm or _is_gov:
+            sidebar_nav += "<div class='nav-section-label'>MODULES</div>"
+            if _is_comm:
+                sidebar_nav += "<a href='/comm/board' class='nav-link'><i data-lucide=megaphone class=icon></i> Communicatie</a>"
+            if _is_gov:
+                sidebar_nav += "<a href='/gov/board' class='nav-link'><i data-lucide=shield class=icon></i> Governance</a>"
+
+        profile_href = f"/users/profile?id={user_id}" if user_id else "#"
+        sidebar_footer = (
+            f"<div class='sidebar-user'>{html.escape(username or '')}</div>"
+            f"<a href='{profile_href}' class='nav-link'><i data-lucide=circle-user class=icon></i> Mijn profiel</a>"
+            "<a href='/account/password' class='nav-link'><i data-lucide=key-round class=icon></i> Wachtwoord</a>"
+            "<a href='/logout' class='nav-link'><i data-lucide=log-out class=icon></i> Uitloggen</a>"
+        )
+        sidebar_search = (
+            "<div class='sidebar-search'>"
+            "<form method='get' action='/customers'>"
+            "<input type='search' name='q' placeholder='Klant zoeken...'>"
+            "<button type='submit'><i data-lucide=search class=icon></i></button>"
+            "</form></div>"
+        )
+        popup_html = (
+            "<div id='msg-popup' style='display:none;position:fixed;bottom:1.5rem;right:1.5rem;"
+            "z-index:9999;background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.2);"
+            "padding:1rem 1.2rem;min-width:280px;max-width:360px;border-left:4px solid #5C7A5A;'>"
+            "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;'>"
+            "<strong style='color:#5C7A5A;'><i data-lucide=message-circle class=icon></i> Nieuw bericht van <span id='msg-popup-from'></span></strong>"
+            "<button onclick='closeMsgPopup()' style='background:none;border:none;cursor:pointer;color:#B0A49A;'><i data-lucide=x class=icon></i></button>"
+            "</div>"
+            "<div id='msg-popup-text' style='font-size:0.9rem;color:#1C1713;margin-bottom:0.6rem;'></div>"
+            "<a id='msg-popup-link' href='/messages' style='background:#5C7A5A;color:#fff;border-radius:4px;padding:0.25rem 0.8rem;text-decoration:none;font-size:0.85rem;'>Bekijken</a>"
+            "</div>"
+        )
     else:
-        nav_links_left = ''
-        nav_links_right = "<a href='/login'>Inloggen</a>"
-        nav_search = ''
+        sidebar_nav = "<a href='/login' class='nav-link'><i data-lucide=log-in class=icon></i> Inloggen</a>"
+        sidebar_footer = ''
+        sidebar_search = ''
         popup_html = ''
     polling_js = '''<script>
 (function() {
@@ -1430,41 +1452,39 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     <style>{styles}</style>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script>
-    function toggleCRM() {{
-        var el = document.getElementById('crm-nav-links');
-        var btn = document.getElementById('crm-toggle-btn');
-        if (!el) return;
-        var showing = el.style.display !== 'none';
-        el.style.display = showing ? 'none' : 'inline';
-        btn.innerHTML = showing ? '<i data-lucide=link-2 class=icon></i> CRM' : '<i data-lucide=x class=icon></i> CRM';
-        localStorage.setItem('crmNavOpen', showing ? '0' : '1');
-    }}
-    document.addEventListener('DOMContentLoaded', function() {{
-        if (localStorage.getItem('crmNavOpen') === '1') {{
-            var el = document.getElementById('crm-nav-links');
-            var btn = document.getElementById('crm-toggle-btn');
-            if (el) {{ el.style.display = 'inline'; btn.innerHTML = '<i data-lucide=x class=icon></i> CRM'; }}
-        }}
+    function sidebarOpen(){{document.getElementById('sidebar').classList.add('open');document.getElementById('sidebar-backdrop').classList.add('open');}}
+    function sidebarClose(){{document.getElementById('sidebar').classList.remove('open');document.getElementById('sidebar-backdrop').classList.remove('open');}}
+    document.addEventListener('DOMContentLoaded',function(){{
+        var path=window.location.pathname;
+        document.querySelectorAll('.nav-link[href]').forEach(function(a){{
+            var h=a.getAttribute('href');
+            if(h&&h!=='/'&&path.startsWith(h))a.classList.add('active');
+            else if(h==='/'&&path==='/')a.classList.add('active');
+        }});
     }});
     </script>
 </head>
 <body>
 {popup_html}
 {polling_js}
-<nav class="navbar">
-    <a href="/" class="brand">Green Office CRM</a>
-    <div class="spacer"></div>
-    {nav_links_left}
-    {nav_search}
-    <div class="spacer"></div>
-    <span class="nav-user">{nav_links_right}</span>
-</nav>
+<div class="sidebar-backdrop" id="sidebar-backdrop" onclick="sidebarClose()"></div>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header"><a href="/" class="brand">Green Office CRM</a></div>
+  {sidebar_search}
+  <nav class="sidebar-nav">{sidebar_nav}</nav>
+  <div class="sidebar-footer">{sidebar_footer}</div>
+</aside>
+<div class="mobile-topbar">
+  <button class="hamburger" onclick="sidebarOpen()"><i data-lucide=menu class=icon-nav></i></button>
+  <a href="/" class="brand">Green Office CRM</a>
+</div>
+<main class="main">
 <div class="container">
 '''
 
 
 def html_footer() -> str:
-    return '<script>if(window.lucide)lucide.createIcons();</script></div></body></html>'
+    return '<script>if(window.lucide)lucide.createIcons();</script></div></main></body></html>'
 
 
 def redirect(location: str) -> bytes:
