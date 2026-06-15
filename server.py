@@ -1330,6 +1330,22 @@ def html_header(title: str, logged_in: bool, username: str | None = None, user_i
     h2 { font-size: 1.15rem; font-weight: 700; color: #1C1713; margin: 0 0 0.5rem; letter-spacing: -0.01em; }
     .btn-outline-success { border: 1px solid #E4DDD6; color: #5C7A5A; background: transparent; border-radius: 0 7px 7px 0; padding: 0.3rem 0.6rem; cursor: pointer; font-size: 0.85rem; }
     .btn-outline-success:hover { background: #EDF3EC; }
+
+    /* ── Stat cards ── */
+    .stat-card { flex: 1; min-width: 100px; text-align: center; padding: 0.8rem 0.5rem; }
+    .stat-val { font-size: 1.5rem; font-weight: 700; color: #1C1713; line-height: 1.1; }
+    .stat-label { font-size: 0.72rem; color: #B0A49A; margin-top: 0.2rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ── Badges ── */
+    .badge { display: inline-block; font-size: 0.7rem; border-radius: 3px; padding: 0.05rem 0.35rem; font-weight: 500; vertical-align: middle; }
+    .badge-danger { color: #C0392B; border: 1px solid #fecaca; background: #fef2f2; }
+    .badge-warn   { color: #B5916A; border: 1px solid #f5d6b0; background: #FEF8F0; }
+    .badge-ok     { color: #5C7A5A; border: 1px solid #D0E3CF; background: #EDF3EC; }
+    .badge-muted  { color: #B0A49A; border: 1px solid #EDE8E3; background: #F7F4F0; }
+
+    /* ── Task rows ── */
+    .task-row { border-bottom: 1px solid #EDE8E3; padding: 0.7rem 0; }
+    .task-row:last-child { border-bottom: none; }
     '''
     # Build sidebar navigation based on login state.
     if logged_in:
@@ -4706,10 +4722,10 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         if notes:
             for note in notes:
                 snippet = (note['content'][:100] + '…') if len(note['content']) > 100 else note['content']
-                notes_section += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.5rem 0;">
+                notes_section += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.7rem 0;">
                     <strong>{html.escape(note['customer_name'])}</strong><br>
                     {html.escape(snippet)}
-                    <div style="font-size:0.8rem; color:#666;">{note['created_at']}</div>
+                    <div style="font-size:0.8rem; color:#7A6E66;">{note['created_at']}</div>
                 </div>'''
         else:
             notes_section = '<p>Er zijn nog geen notities.</p>'
@@ -4754,13 +4770,13 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                     toggle_btn = ''
                     comm_btn = ''
                     gov_btn = ''
-                body += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
+                body += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.7rem 0; display:flex; justify-content:space-between; align-items:center;">
                     <div>
                         <strong>{html.escape(user['username'])}</strong> ({html.escape(user['email'])})
                         {'<span style="font-size:0.75rem;background:#5C7A5A;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;">admin</span>' if is_admin_user else ''}
                         {'<span style="font-size:0.75rem;background:#7A6E66;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;"><i data-lucide=users class=icon></i> comm</span>' if is_comm_user else ''}
                         {'<span style="font-size:0.75rem;background:#7A8FA6;color:#fff;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.5rem;"><i data-lucide=settings class=icon></i> gov</span>' if is_gov_user else ''}
-                        <div style="font-size:0.8rem; color:#666;">Aangemaakt op {(user['created_at'] or '')[:10]}</div>
+                        <div style="font-size:0.8rem; color:#7A6E66;">Aangemaakt op {(user['created_at'] or '')[:10]}</div>
                     </div>
                     <div>
                         <a href="/users/profile?id={user['id']}" class="btn btn-sm btn-secondary">Profiel</a>
@@ -4826,7 +4842,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
         <h3 style="margin-top:0;"><i data-lucide=check class=icon></i> Taak afronden</h3>
         {error_html}
         <p><strong>{html.escape(task["title"])}</strong><br>
-        <small style="color:#666;">Klant: <a href="/customers/view?id={task["customer_id"]}" style="color:#5C7A5A;">{html.escape(task["customer_name"])}</a></small></p>
+        <small style="color:#7A6E66;">Klant: <a href="/customers/view?id={task["customer_id"]}" style="color:#5C7A5A;">{html.escape(task["customer_name"])}</a></small></p>
         <form method="POST" action="/tasks/resolve?id={task_id}&from={html.escape(from_page)}">
             <div style="margin-bottom:0.75rem;">
                 <label style="font-weight:bold;">Contactmoment type *</label><br>
@@ -4941,37 +4957,33 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
             msg_unread_total = cur.fetchone()[0]
         body = html_header(f'Profiel: {profile_user["username"]}', True, viewer_username, viewer_id)
         body += f'<h2 class="mt-4"><i data-lucide=user class=icon></i> {html.escape(profile_user["username"])}</h2>'
-        body += f'<p style="color:#666;">{html.escape(profile_user["email"])} &middot; Account aangemaakt op {profile_user["created_at"][:10]}</p>'
+        body += f'<p style="color:#7A6E66;">{html.escape(profile_user["email"])} &middot; Account aangemaakt op {profile_user["created_at"][:10]}</p>'
         # Stats row
         overdue = [t for t in open_tasks if t['due_date'] and t['due_date'] < datetime.date.today().isoformat()]
-        body += f'''<div style="display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
-            <div class="card" style="flex:1;min-width:140px;text-align:center;">
-                <div style="font-size:2rem;font-weight:bold;color:#5C7A5A;">{len(open_tasks)}</div>
-                <div>Open taken</div>
-            </div>
-            <div class="card" style="flex:1;min-width:140px;text-align:center;">
-                <div style="font-size:2rem;font-weight:bold;color:{'#C0392B' if overdue else '#5C7A5A'};">{len(overdue)}</div>
-                <div>Verlopen taken</div>
-            </div>
-            <div class="card" style="flex:1;min-width:140px;text-align:center;">
-                <div style="font-size:2rem;font-weight:bold;color:#1976d2;">{len(linked_customers)}</div>
-                <div>Gekoppelde klanten</div>
-            </div>
-            <div class="card" style="flex:1;min-width:140px;text-align:center;">
-                <div style="font-size:2rem;font-weight:bold;color:#7A6E66;">{len(interactions)}</div>
-                <div>Recente interacties</div>
-            </div>
-        </div>'''
+        body += f'<div style="display:flex;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">'
+        body += (f'<div class="card stat-card"><div class="stat-val">{len(open_tasks)}</div>'
+                 f'<div class="stat-label">Open taken</div></div>')
+        body += (f'<div class="card stat-card"><div class="stat-val" style="color:{"#C0392B" if overdue else "#1C1713"};">{len(overdue)}</div>'
+                 f'<div class="stat-label">Verlopen taken</div></div>')
+        body += (f'<div class="card stat-card"><div class="stat-val">{len(linked_customers)}</div>'
+                 f'<div class="stat-label">Gekoppelde klanten</div></div>')
+        body += (f'<div class="card stat-card"><div class="stat-val">{len(interactions)}</div>'
+                 f'<div class="stat-label">Recente interacties</div></div>')
+        body += '</div>'
         # Open tasks
         body += '<div class="card"><div class="section-title">Open taken</div>'
         if open_tasks:
             for t in open_tasks:
                 due = t['due_date'] or '-'
                 is_overdue = t['due_date'] and t['due_date'] < datetime.date.today().isoformat()
-                due_color = '#C0392B' if is_overdue else '#555'
-                desc = f'<br><small style="color:#666;">{html.escape(t["description"])}</small>' if t['description'] else ''
-                resolve_btn = f"<a href='/tasks/resolve?id={t['task_id']}&from=users/profile' style='background:#5C7A5A;color:#fff;border-radius:4px;padding:0.15rem 0.55rem;font-size:0.8rem;text-decoration:none;margin-left:0.5rem;'><i data-lucide=check class=icon></i> Resolve</a>"
-                body += f'''<div style="border-bottom:1px solid #EDE8E3;padding:0.5rem 0;">
+                due_color = '#C0392B' if is_overdue else '#B0A49A'
+                desc = f'<br><small style="color:#7A6E66;">{html.escape(t["description"])}</small>' if t['description'] else ''
+                resolve_btn = (f"<a href='/tasks/resolve?id={t['task_id']}&from=users/profile'"
+                               f" style='background:#F2EEE9;color:#7A6E66;border:1px solid #E4DDD6;"
+                               f"border-radius:5px;padding:0.15rem 0.55rem;font-size:0.78rem;"
+                               f"text-decoration:none;margin-left:0.5rem;'>"
+                               f"<i data-lucide=check class=icon></i> Resolve</a>")
+                body += f'''<div style="border-bottom:1px solid #EDE8E3;padding:0.7rem 0;">
                     <a href="/customers/view?id={t['customer_id']}" style="color:#5C7A5A;font-weight:bold;">{html.escape(t['customer_name'])}</a>
                     &mdash; {html.escape(t['title'])}{desc}
                     <span style="float:right;color:{due_color};font-size:0.85rem;"><i data-lucide=calendar class=icon></i> {due} {resolve_btn}</span>
@@ -5103,7 +5115,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 fid = f['id']
                 label = html.escape(f['label'])
                 name = html.escape(f['name'])
-                body += f'<div style="border-bottom:1px solid #EDE8E3; padding:0.5rem 0;">'
+                body += f'<div style="border-bottom:1px solid #EDE8E3; padding:0.7rem 0;">'
                 body += f'<strong>{label}</strong> <small>({name})</small>'
                 body += f'<a href="/fields/delete?id={fid}" style="color:#5C7A5A; float:right;" onclick="return confirm(\'Weet je zeker dat je dit veld wilt verwijderen?\');">Verwijder</a>'
                 body += '</div>'
@@ -5393,7 +5405,7 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
     <div style="background:#fff;border-radius:10px;padding:2rem 2.5rem;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.3);min-width:280px;">
         <div style="font-size:2rem;margin-bottom:0.5rem;"><i data-lucide=settings class=icon></i></div>
         <div style="font-size:1.1rem;font-weight:bold;margin-bottom:0.5rem;" id="overlay-title">Bezig...</div>
-        <div style="color:#666;font-size:0.9rem;margin-bottom:1rem;" id="overlay-msg">Even geduld, de server verwerkt je actie...</div>
+        <div style="color:#7A6E66;font-size:0.9rem;margin-bottom:1rem;" id="overlay-msg">Even geduld, de server verwerkt je actie...</div>
         <div style="background:#eee;border-radius:4px;height:8px;overflow:hidden;">
             <div id="overlay-bar" style="background:#5C7A5A;height:8px;width:0%;transition:width 0.4s linear;border-radius:4px;"></div>
         </div>
@@ -5841,10 +5853,10 @@ function bulkAction(action){
                     actions.append(f"<a href='/tasks/complete?id={task['task_id']}&customer_id={customer['id']}' style='color:#5C7A5A;'>Markeer voltooid</a>")
                 actions.append(f"<a href='/tasks/delete?id={task['task_id']}&customer_id={customer['id']}' style='color:#5C7A5A;' onclick=\"return confirm('Weet je zeker dat je deze taak wilt verwijderen?');\">Verwijder</a>")
                 action_html = ' | '.join(actions)
-                tasks_section += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.5rem 0;">
+                tasks_section += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.7rem 0;">
                     <span style="color:{status_color}; font-weight:bold;">{status_label}</span>
                     <strong style="margin-left:0.5rem;">{html.escape(task['title'])}</strong> (Vervaldatum: {html.escape(due)}){description}
-                    <div style="font-size:0.8rem; color:#666;">Aangemaakt op {task['created_at']} &middot; Toegewezen aan: <strong>{html.escape(task['author'])}</strong></div>
+                    <div style="font-size:0.8rem; color:#7A6E66;">Aangemaakt op {task['created_at']} &middot; Toegewezen aan: <strong>{html.escape(task['author'])}</strong></div>
                     <div style="font-size:0.8rem;">{action_html}</div>
                 </div>'''
         else:
@@ -5862,9 +5874,9 @@ function bulkAction(action){
         if notes:
             for note in notes:
                 author_part = f"door {html.escape(note['author'])}" if note['author'] else ''
-                notes_section += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.5rem 0;">
+                notes_section += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.7rem 0;">
                     {html.escape(note['content'])}
-                    <div style="font-size:0.8rem; color:#666;">{note['created_at']} {author_part}</div>
+                    <div style="font-size:0.8rem; color:#7A6E66;">{note['created_at']} {author_part}</div>
                     <div style="font-size:0.8rem;"><a href='/notes/delete?id={note['note_id']}&customer_id={customer['id']}' style='color:#5C7A5A;' onclick="return confirm('Weet je zeker dat je deze notitie wilt verwijderen?');">Verwijder</a></div>
                 </div>'''
         else:
@@ -5890,7 +5902,7 @@ function bulkAction(action){
             <label>Datum contact<br>
                 <input type="date" name="contact_date" value="{today_str}" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;">
             </label>
-            <small style="display:block;margin-bottom:0.4rem;color:#666;">Pas de datum aan als het contact eerder plaatsvond — de herinnering wordt dan automatisch berekend vanaf die datum.</small>
+            <small style="display:block;margin-bottom:0.4rem;color:#7A6E66;">Pas de datum aan als het contact eerder plaatsvond — de herinnering wordt dan automatisch berekend vanaf die datum.</small>
             <label>Notitie (optioneel)<br>
                 <input type="text" name="note" style="width:100%; padding:0.4rem; margin-bottom:0.3rem;"></label>
             <button type="submit" style="background-color:#5C7A5A; color:#fff; border:none; padding:0.5rem 1rem; border-radius:4px;">Interactie toevoegen</button>
@@ -5906,9 +5918,9 @@ function bulkAction(action){
                 }.get(interaction['interaction_type'], interaction['interaction_type'])
                 note_part = f"<br><small>{html.escape(interaction['note'])}</small>" if interaction['note'] else ''
                 date_str = interaction['contact_date'] or interaction['created_at'][:10]
-                interactions_section += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.5rem 0;">
+                interactions_section += f'''<div style="border-bottom:1px solid #EDE8E3; padding:0.7rem 0;">
                     <strong>{html.escape(type_label)}</strong>{note_part}
-                    <div style="font-size:0.8rem; color:#666;">{date_str} door {html.escape(interaction['author'])}
+                    <div style="font-size:0.8rem; color:#7A6E66;">{date_str} door {html.escape(interaction['author'])}
                         <span style="float:right;">
                             <a href="/interactions/edit?id={interaction['interaction_id']}&customer_id={customer['id']}" style="color:#5C7A5A;">Bewerk</a>
                             &nbsp;|&nbsp;
@@ -6081,15 +6093,18 @@ function bulkAction(action){
             body += '</ul></div>'
 
         # Stats row
-        def _stat(val, label, color='#5C7A5A'):
-            return f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.8rem;color:#7A6E66;">{label}</div></div>'
+        def _stat(val, label, color='#1C1713'):
+            return (f'<div class="card stat-card">'
+                    f'<div class="stat-val" style="color:{color};">{val}</div>'
+                    f'<div class="stat-label">{label}</div>'
+                    f'</div>')
         total_open    = len(backlog) + len(bezig)
         total_overdue = sum(1 for t in all_tasks if t['status'] not in ('klaar','archief') and t['due_date'] and t['due_date'] < today_iso)
         body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
-        body += _stat(total_open, 'Open taken', '#B5916A')
-        body += _stat(total_overdue, 'Verlopen', '#C0392B' if total_overdue else '#5C7A5A')
-        body += _stat(len(klaar), 'Afgerond', '#5C7A5A')
-        body += _stat(len(active_goals), 'Actieve doelen', '#7A6E66')
+        body += _stat(total_open, 'Open taken', '#B5916A' if total_open else '#1C1713')
+        body += _stat(total_overdue, 'Verlopen', '#C0392B' if total_overdue else '#1C1713')
+        body += _stat(len(klaar), 'Afgerond')
+        body += _stat(len(active_goals), 'Actieve doelen')
         body += '</div>'
 
         # Per-member stats (collapsible)
@@ -6146,7 +6161,7 @@ function bulkAction(action){
             tags_html  = ''.join(f'<span style="font-size:0.7rem;background:#EDF3EC;color:#7A8FA6;border-radius:3px;padding:0.05rem 0.3rem;">{html.escape(tag.strip())}</span>' for tag in (t['tags'] or '').split(',') if tag.strip())
             reminder   = f'<div style="font-size:0.75rem;color:#5C7A5A;margin-top:0.2rem;"><i data-lucide=bell class=icon></i> {html.escape(t["reminder_note"])}</div>' if t['reminder_note'] else ''
             prio_badge = self._priority_badge(t['priority'])
-            desc       = f'<div style="font-size:0.78rem;color:#666;margin:0.2rem 0;">{html.escape(t["description"][:80])}{"…" if len(t["description"] or "")>80 else ""}</div>' if t['description'] else ''
+            desc       = f'<div style="font-size:0.78rem;color:#7A6E66;margin:0.2rem 0;">{html.escape(t["description"][:80])}{"…" if len(t["description"] or "")>80 else ""}</div>' if t['description'] else ''
 
             if t['status'] == 'backlog':
                 move = f'<a href="/comm/tasks/move?id={t["id"]}&status=bezig" class="btn btn-sm" style="background:#7A8FA6;color:#fff;font-size:0.7rem;">→ Bezig</a>'
@@ -6322,7 +6337,10 @@ function bulkAction(action){
 
         actief  = [g for g in goals if g['status'] == 'actief']
         behaald = [g for g in goals if g['status'] == 'behaald']
-        body += f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;"><div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:#7A6E66;">{len(actief)}</div><div style="font-size:0.8rem;color:#7A6E66;">Actief</div></div><div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:#5C7A5A;">{len(behaald)}</div><div style="font-size:0.8rem;color:#7A6E66;">Behaald</div></div></div>'
+        body += (f'<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
+                 f'<div class="card stat-card"><div class="stat-val">{len(actief)}</div><div class="stat-label">Actief</div></div>'
+                 f'<div class="card stat-card"><div class="stat-val">{len(behaald)}</div><div class="stat-label">Behaald</div></div>'
+                 f'</div>')
 
         body += '''<div class="card" style="margin-bottom:1rem;"><div class="section-title">+ Nieuw doel</div>
             <form method="POST" action="/comm/goals/add" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
@@ -6341,7 +6359,7 @@ function bulkAction(action){
             dc       = '#C0392B' if overdue else ('#5C7A5A' if is_done else '#555')
             date_str = f' <i data-lucide=calendar class=icon></i> <span style="color:{dc};">{g["target_date"]}{"  <i data-lucide=alert-triangle class=icon></i>" if overdue else ""}</span>' if g['target_date'] else ''
             sbadge   = '<span style="background:#EDF3EC;color:#5C7A5A;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.78rem;"><i data-lucide=check class=icon></i> Behaald</span>' if is_done else '<span style="background:#F2EEE9;color:#7A6E66;border-radius:4px;padding:0.1rem 0.4rem;font-size:0.78rem;">Actief</span>'
-            desc     = f'<div style="font-size:0.85rem;color:#666;margin:0.25rem 0;">{html.escape(g["description"])}</div>' if g['description'] else ''
+            desc     = f'<div style="font-size:0.85rem;color:#7A6E66;margin:0.25rem 0;">{html.escape(g["description"])}</div>' if g['description'] else ''
             act_btn  = (f'<a href="/comm/goals/reopen?id={g["id"]}" class="btn btn-sm btn-secondary">↩ Heropenen</a>' if is_done
                         else f'<a href="/comm/goals/complete?id={g["id"]}" class="btn btn-sm" style="background:#5C7A5A;color:#fff;" onclick="return confirm(\'Doel behaald markeren?\');"><i data-lucide=check class=icon></i> Behaald</a>')
             edit_btn = f'<a href="/comm/goals/edit?id={g["id"]}" class="btn btn-sm btn-secondary" style="margin-left:0.4rem;"><i data-lucide=pencil class=icon></i> Bewerk</a>'
@@ -6350,7 +6368,7 @@ function bulkAction(action){
             gtasks    = tasks_by_goal.get(g['id'], [])
             done_cnt  = sum(1 for t in gtasks if t['status'] == 'klaar')
             pct       = int(done_cnt / len(gtasks) * 100) if gtasks else 0
-            prog_bar  = (f'<div style="margin:0.4rem 0;"><div style="font-size:0.75rem;color:#666;margin-bottom:0.2rem;">Deliverables: {done_cnt}/{len(gtasks)} ({pct}%)</div>'
+            prog_bar  = (f'<div style="margin:0.4rem 0;"><div style="font-size:0.75rem;color:#7A6E66;margin-bottom:0.2rem;">Deliverables: {done_cnt}/{len(gtasks)} ({pct}%)</div>'
                          f'<div style="background:#EDE8E3;border-radius:4px;height:7px;"><div style="background:#7A6E66;border-radius:4px;height:7px;width:{pct}%;"></div></div></div>') if gtasks else ''
 
             body += f'''<div class="card" style="opacity:{'0.7' if is_done else '1'};">
@@ -6602,15 +6620,18 @@ function bulkAction(action){
         today_due  = [t for t in my_open if t['due_date'] == today_iso]
 
         # Stats row
-        def _stat(v, l, c='#5C7A5A'):
-            return f'<div class="card" style="flex:1;min-width:90px;text-align:center;padding:0.6rem;"><div style="font-size:1.5rem;font-weight:bold;color:{c};">{v}</div><div style="font-size:0.78rem;color:#7A6E66;">{l}</div></div>'
+        def _stat(v, l, c='#1C1713'):
+            return (f'<div class="card stat-card">'
+                    f'<div class="stat-val" style="color:{c};">{v}</div>'
+                    f'<div class="stat-label">{l}</div>'
+                    f'</div>')
         soon_cnt = len(soon_tasks) + len(today_due)
-        body += '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">'
-        body += _stat(len(my_open), 'Open taken', '#B5916A')
-        body += _stat(overdue_cnt, 'Verlopen', '#C0392B' if overdue_cnt else '#5C7A5A')
-        body += _stat(soon_cnt, 'Bijna deadline', '#B5916A' if soon_cnt else '#5C7A5A')
-        body += _stat(len(my_done), 'Afgerond', '#5C7A5A')
-        body += _stat(len(my_goals), 'Doelen', '#7A6E66')
+        body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem;">'
+        body += _stat(len(my_open), 'Open taken', '#B5916A' if my_open else '#1C1713')
+        body += _stat(overdue_cnt, 'Verlopen', '#C0392B' if overdue_cnt else '#1C1713')
+        body += _stat(soon_cnt, 'Bijna deadline', '#B5916A' if soon_cnt else '#1C1713')
+        body += _stat(len(my_done), 'Afgerond')
+        body += _stat(len(my_goals), 'Doelen')
         body += '</div>'
 
         def _task_row(t):
@@ -7002,7 +7023,7 @@ function bulkAction(action){
                 else:
                     delta_str = f'<span style="color:#7A6E66;">Over {days_delta} dagen</span>'
 
-                desc = f'<div style="font-size:0.82rem;color:#666;">{html.escape(d["description"])}</div>' if d['description'] else ''
+                desc = f'<div style="font-size:0.82rem;color:#7A6E66;">{html.escape(d["description"])}</div>' if d['description'] else ''
                 to_task_btn = f'<a href="/comm/dates/to-task?id={d["id"]}" class="btn btn-sm" style="background:#7A8FA6;color:#fff;font-size:0.7rem;margin-left:0.3rem;" onclick="return confirm(\'Taak aanmaken van deze datum?\');">→ Taak</a>'
                 edit_btn    = f'<a href="/comm/dates/edit?id={d["id"]}" class="btn btn-sm btn-secondary" style="font-size:0.7rem;margin-left:0.3rem;"><i data-lucide=pencil class=icon></i></a>'
                 del_btn     = f'<a href="/comm/dates/delete?id={d["id"]}" class="btn btn-sm btn-danger" style="font-size:0.7rem;margin-left:0.3rem;" onclick="return confirm(\'Verwijderen?\');"><i data-lucide=x class=icon></i></a>'
@@ -7378,11 +7399,14 @@ function bulkAction(action){
         body += self._gov_nav('board', user_id)
 
         # Stats row
-        def _stat(val, label, color='#7A8FA6'):
-            return f'<div class="card" style="flex:1;min-width:100px;text-align:center;padding:0.6rem;"><div style="font-size:1.6rem;font-weight:bold;color:{color};">{val}</div><div style="font-size:0.8rem;color:#7A6E66;">{label}</div></div>'
+        def _stat(val, label, color='#1C1713'):
+            return (f'<div class="card stat-card">'
+                    f'<div class="stat-val" style="color:{color};">{val}</div>'
+                    f'<div class="stat-label">{label}</div>'
+                    f'</div>')
 
         body += '<div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">'
-        body += _stat(len(all_persons), 'Totaal personen', '#7A8FA6')
+        body += _stat(len(all_persons), 'Totaal personen')
         for ph in valid_phases:
             cnt = len(phase_map[ph])
             if cnt:
@@ -7594,7 +7618,7 @@ function bulkAction(action){
                         <span style="font-size:0.8rem;color:#B0A49A;">{card_done}/{card_total}</span>
                     </div>'''
                 if card['description']:
-                    body += f'<div style="font-size:0.8rem;color:#666;margin-bottom:0.4rem;">{html.escape(card["description"])}</div>'
+                    body += f'<div style="font-size:0.8rem;color:#7A6E66;margin-bottom:0.4rem;">{html.escape(card["description"])}</div>'
                 body += f'''<div style="height:5px;background:#EDE8E3;border-radius:3px;overflow:hidden;margin-bottom:0.5rem;">
                         <div style="height:100%;width:{card_pct}%;background:{ph_color};border-radius:3px;"></div>
                     </div>'''
@@ -7906,7 +7930,7 @@ function bulkAction(action){
                         </div>
                     </div>'''
                 if card['description']:
-                    body += f'<div style="font-size:0.85rem;color:#666;margin-top:0.2rem;">{html.escape(card["description"])}</div>'
+                    body += f'<div style="font-size:0.85rem;color:#7A6E66;margin-top:0.2rem;">{html.escape(card["description"])}</div>'
                 body += f'<div style="font-size:0.75rem;color:#B0A49A;margin-top:0.1rem;">Volgorde: {card["order_index"]}</div>'
 
                 # Items list
