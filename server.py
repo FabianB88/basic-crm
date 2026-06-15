@@ -2387,6 +2387,115 @@ class CRMRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_response(302)
                 self.send_header('Location', f'/customers/view?id={cid_int}')
                 self.end_headers()
+        elif path == '/interactions/delete':
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            iid = query_params.get('id', [None])[0]
+            cid = query_params.get('customer_id', [None])[0]
+            if not iid or not cid:
+                self.respond_not_found()
+                return
+            try:
+                iid_int = int(iid)
+                cid_int = int(cid)
+            except ValueError:
+                self.respond_not_found()
+                return
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                cur = conn.cursor()
+                cur.execute('DELETE FROM interactions WHERE id = ?', (iid_int,))
+                conn.commit()
+            log_action(user_id, 'delete', 'interactions', iid_int)
+            try:
+                check_and_create_reminders()
+            except Exception:
+                pass
+            self.send_response(302)
+            self.send_header('Location', f'/customers/view?id={cid_int}')
+            self.end_headers()
+        elif path == '/interactions/edit':
+            if not logged_in:
+                self.respond_redirect('/login')
+                return
+            iid = query_params.get('id', [None])[0]
+            cid = query_params.get('customer_id', [None])[0]
+            if not iid or not cid:
+                self.respond_not_found()
+                return
+            try:
+                iid_int = int(iid)
+                cid_int = int(cid)
+            except ValueError:
+                self.respond_not_found()
+                return
+            with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
+                cur.execute('SELECT * FROM interactions WHERE id = ?', (iid_int,))
+                inter = cur.fetchone()
+            if not inter:
+                self.respond_not_found()
+                return
+            if method == 'POST':
+                length = int(self.headers.get('Content-Length', 0))
+                data = self.rfile.read(length).decode('utf-8')
+                params = urllib.parse.parse_qs(data)
+                interaction_type = params.get('interaction_type', [''])[0].strip()
+                note = params.get('note', [''])[0].strip()
+                contact_date = params.get('contact_date', [''])[0].strip() or None
+                if not interaction_type:
+                    self.respond_redirect(f'/interactions/edit?id={iid_int}&customer_id={cid_int}')
+                    return
+                with sqlite3.connect(DB_PATH, timeout=10) as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        'UPDATE interactions SET interaction_type=?, note=?, contact_date=? WHERE id=?',
+                        (interaction_type, note or None, contact_date, iid_int)
+                    )
+                    conn.commit()
+                log_action(user_id, 'update', 'interactions', iid_int, f'type={interaction_type}')
+                try:
+                    check_and_create_reminders()
+                except Exception:
+                    pass
+                self.send_response(302)
+                self.send_header('Location', f'/customers/view?id={cid_int}')
+                self.end_headers()
+            else:
+                customer_obj = self.get_customer(cid_int)
+                customer_name = customer_obj['name'] if customer_obj else f'Klant {cid_int}'
+                body = html_header('Interactie bewerken', True, username, user_id)
+                body += f'<h2 class="mt-4">&#9998; Interactie bewerken — {html.escape(customer_name)}</h2>'
+                current_type = inter['interaction_type'] or ''
+                current_note = inter['note'] or ''
+                current_date = inter['contact_date'] or inter['created_at'][:10]
+                type_options = ''
+                for val, lbl in [('call', 'Bellen'), ('email', 'E-mail'), ('message', 'Bericht'), ('meeting', 'Meeting')]:
+                    sel = 'selected' if current_type == val else ''
+                    type_options += f'<option value="{val}" {sel}>{lbl}</option>'
+                body += f'''<div class="card">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">Type interactie</label>
+                            <select name="interaction_type" class="form-control" required>
+                                {type_options}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Datum contact</label>
+                            <input type="date" name="contact_date" class="form-control" value="{html.escape(current_date)}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Notitie (optioneel)</label>
+                            <input type="text" name="note" class="form-control" value="{html.escape(current_note)}">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Opslaan</button>
+                        <a href="/customers/view?id={cid_int}" class="btn btn-link">Annuleren</a>
+                    </form>
+                </div>'''
+                body += html_footer()
+                self._send_html(body)
         elif path == '/export':
             # Export customers to CSV.  Only admin can download the export.
             if not logged_in or not is_admin(user_id):
@@ -5532,11 +5641,12 @@ function bulkAction(action){
             tasks = cur.fetchall()
             # Interactions
             cur.execute('''
-                SELECT interactions.id AS interaction_id, interactions.interaction_type, interactions.note, interactions.created_at, users.username AS author
+                SELECT interactions.id AS interaction_id, interactions.interaction_type, interactions.note,
+                       interactions.created_at, interactions.contact_date, users.username AS author
                 FROM interactions
                 JOIN users ON interactions.user_id = users.id
                 WHERE interactions.customer_id = ?
-                ORDER BY interactions.created_at DESC
+                ORDER BY COALESCE(interactions.contact_date, DATE(interactions.created_at)) DESC
             ''', (customer['id'],))
             interactions = cur.fetchall()
             # All users for task assignment dropdown
@@ -5636,7 +5746,7 @@ function bulkAction(action){
         for n in notes:
             timeline_items.append((n['created_at'][:10], f'📝 {html.escape((n["content"][:80] + "…") if len(n["content"]) > 80 else n["content"])} <small style="color:#888;">(Notitie · {html.escape(n["author"] or "")} · {n["created_at"][:10]})</small>'))
         for i in interactions:
-            d = i['created_at'][:10]
+            d = i['contact_date'] or i['created_at'][:10]
             lbl = type_label_map.get(i['interaction_type'], i['interaction_type'])
             icon = type_icon.get(i['interaction_type'], '🔔')
             note_part = f' — {html.escape(i["note"])}' if i['note'] else ''
@@ -5737,9 +5847,16 @@ function bulkAction(action){
                     'meeting': 'Meeting'
                 }.get(interaction['interaction_type'], interaction['interaction_type'])
                 note_part = f"<br><small>{html.escape(interaction['note'])}</small>" if interaction['note'] else ''
+                date_str = interaction['contact_date'] or interaction['created_at'][:10]
                 interactions_section += f'''<div style="border-bottom:1px solid #eee; padding:0.5rem 0;">
                     <strong>{html.escape(type_label)}</strong>{note_part}
-                    <div style="font-size:0.8rem; color:#666;">{interaction['created_at']} door {html.escape(interaction['author'])}</div>
+                    <div style="font-size:0.8rem; color:#666;">{date_str} door {html.escape(interaction['author'])}
+                        <span style="float:right;">
+                            <a href="/interactions/edit?id={interaction['interaction_id']}&customer_id={customer['id']}" style="color:#5C7A5A;">Bewerk</a>
+                            &nbsp;|&nbsp;
+                            <a href="/interactions/delete?id={interaction['interaction_id']}&customer_id={customer['id']}" style="color:#C0392B;" onclick="return confirm(&#39;Weet je zeker dat je deze interactie wilt verwijderen?&#39;);">Verwijder</a>
+                        </span>
+                    </div>
                 </div>'''
         else:
             interactions_section += '<p>Er zijn nog geen interacties.</p>'
