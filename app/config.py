@@ -45,6 +45,19 @@ REMINDER_DAYS_INTERN = 180
 REMINDER_DAYS_EXTERN = 60
 REMINDER_INTERVAL_SECONDS = 24 * 3600
 
+# Een open taak blijft na zijn vervaldatum nog zoveel dagen in de actieve lijst
+# staan; daarna gaat hij automatisch naar het archief. Taken zonder vervaldatum
+# verlopen nooit en worden dus ook nooit automatisch gearchiveerd.
+TASK_ARCHIVE_AFTER_DAYS = 14
+
+# Hoe ver vooruit het dashboard openstaande taken toont.
+DASHBOARD_HORIZON_DAYS = 14
+
+# 'open'      staat in de actieve lijst
+# 'completed' door iemand afgerond
+# 'archief'   automatisch opgeruimd omdat hij te lang over datum was
+TASK_STATUSES = ['open', 'completed', 'archief']
+
 # ── Password policy ───────────────────────────────────────────────────────
 MIN_PASSWORD_LENGTH = 8
 

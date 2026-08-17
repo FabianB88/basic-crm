@@ -185,9 +185,13 @@ def search(ctx) -> None:
         args.append(filter_uid)
     if status == 'verlopen':
         conditions.append("t.status = 'open' AND t.due_date < DATE('now')")
-    elif status in ('open', 'completed'):
+    elif status in ('open', 'completed', 'archief'):
         conditions.append('t.status = ?')
         args.append(status)
+    else:
+        # Zonder filter blijft het archief buiten beeld; anders vult het
+        # opgeruimde werk de zoekresultaten.
+        conditions.append("t.status != 'archief'")
 
     rows = query_all(f'''
         SELECT t.id AS task_id, t.title, t.description, t.due_date, t.status,
@@ -209,8 +213,9 @@ def search(ctx) -> None:
         f'{html.escape(u["username"])}</option>' for u in users)
     status_options = ''.join(
         f'<option value="{value}"{" selected" if status == value else ""}>{label}</option>'
-        for value, label in [('', 'Alle statussen'), ('open', 'Open'),
-                             ('verlopen', 'Verlopen'), ('completed', 'Voltooid')])
+        for value, label in [('', 'Alles behalve archief'), ('open', 'Open'),
+                             ('verlopen', 'Verlopen'), ('completed', 'Voltooid'),
+                             ('archief', 'Gearchiveerd')])
 
     body += f'''<div class="card" style="padding:0.75rem 1rem;">
         <form method="GET" action="/tasks/search"
@@ -246,8 +251,10 @@ def search(ctx) -> None:
         for task in rows:
             overdue = task['due_date'] and task['due_date'] < today and task['status'] == 'open'
             color = '#C0392B' if overdue else '#555'
-            badge = ('<span class="badge badge-ok">Voltooid</span>' if task['status'] == 'completed'
-                     else '<span class="badge badge-warn">Open</span>')
+            badge = {
+                'completed': '<span class="badge badge-ok">Voltooid</span>',
+                'archief': '<span class="badge badge-muted">Gearchiveerd</span>',
+            }.get(task['status'], '<span class="badge badge-warn">Open</span>')
             desc = (f'<br><small style="color:#B0A49A;">{html.escape(task["description"])}</small>'
                     if task['description'] else '')
             resolve_link = ''
@@ -271,59 +278,123 @@ def search(ctx) -> None:
 
 # ── Archive ───────────────────────────────────────────────────────────────
 def archive(ctx) -> None:
+    """Voltooide taken plus taken die automatisch zijn opgeruimd."""
     filter_uid = ctx.qint('user_id')
-    args, clause = (), ''
+    kind = ctx.choice(ctx.q('soort'), ('completed', 'archief'), '')
+
+    conditions = ["t.status IN ('completed','archief')"]
+    args = []
     if filter_uid:
-        clause, args = 'AND t.user_id = ?', (filter_uid,)
+        conditions.append('t.user_id = ?')
+        args.append(filter_uid)
+    if kind:
+        conditions.append('t.status = ?')
+        args.append(kind)
+
     rows = query_all(f'''
-        SELECT t.id AS task_id, t.title, t.description, t.due_date, t.created_at,
+        SELECT t.id AS task_id, t.title, t.description, t.due_date, t.created_at, t.status,
                c.name AS customer_name, c.id AS customer_id, u.username AS assigned_to
           FROM tasks t
           JOIN customers c ON t.customer_id = c.id
           JOIN users u     ON t.user_id = u.id
-         WHERE t.status = 'completed' {clause}
-         ORDER BY t.created_at DESC LIMIT 500''', args)
+         WHERE {' AND '.join(conditions)}
+         ORDER BY t.created_at DESC LIMIT 500''', tuple(args))
     users = query_all('SELECT id, username FROM users ORDER BY username ASC')
 
-    body = page_header('Archief voltooide taken', ctx)
-    body += '<h2 class="mt-4"><i data-lucide=archive class=icon></i> Archief voltooide taken</h2>'
-    options = '<option value="">Alle gebruikers</option>' + ''.join(
+    body = page_header('Archief', ctx)
+    body += '<h2 class="mt-4"><i data-lucide=archive class=icon></i> Archief</h2>'
+    body += (f'<p style="color:#7A6E66;font-size:0.875rem;">Afgeronde taken en taken die '
+             f'automatisch zijn opgeruimd omdat ze meer dan '
+             f'{config.TASK_ARCHIVE_AFTER_DAYS} dagen over hun vervaldatum stonden. '
+             f'Automatisch gearchiveerde taken kun je terugzetten.</p>')
+
+    user_options = '<option value="">Alle gebruikers</option>' + ''.join(
         f'<option value="{u["id"]}"{" selected" if filter_uid == u["id"] else ""}>'
         f'{html.escape(u["username"])}</option>' for u in users)
+    kind_options = ''.join(
+        f'<option value="{value}"{" selected" if kind == value else ""}>{label}</option>'
+        for value, label in [('', 'Alles'), ('completed', 'Afgerond'),
+                             ('archief', 'Automatisch gearchiveerd')])
     body += f'''<div class="card" style="padding:0.75rem 1rem;">
         <form method="GET" action="/tasks/archive"
-              style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
-            <label style="margin:0;">Filteren op gebruiker:
-                <select name="user_id" class="form-select" style="width:auto;display:inline-block;"
-                        onchange="this.form.submit()">{options}</select></label>
+              style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap;">
+            <div><label class="form-label">Gebruiker</label>
+                <select name="user_id" class="form-select" onchange="this.form.submit()">
+                    {user_options}</select></div>
+            <div><label class="form-label">Soort</label>
+                <select name="soort" class="form-select" onchange="this.form.submit()">
+                    {kind_options}</select></div>
             <a href="/tasks/archive" class="btn btn-link">Wis filter</a>
         </form></div>'''
 
     export_link = ('<a href="/tasks/export" style="float:right;font-size:0.85rem;font-weight:normal;">'
                    '<i data-lucide=download class=icon></i> Exporteer alle taken (CSV)</a>'
                    ) if ctx.is_admin else ''
-    body += (f'<div class="card"><div class="section-title">Voltooide taken ({len(rows)})'
-             f'{export_link}</div>')
+    body += f'<div class="card"><div class="section-title">Taken ({len(rows)}){export_link}</div>'
     if rows:
-        body += ('<div class="table-wrap"><table><thead><tr><th>Taak</th><th>Klant</th>'
-                 '<th>Toegewezen aan</th><th>Vervaldatum</th><th>Aangemaakt</th>'
-                 '</tr></thead><tbody>')
+        body += ('<div class="table-wrap"><table><thead><tr><th>Taak</th><th>Status</th>'
+                 '<th>Klant</th><th>Toegewezen aan</th><th>Vervaldatum</th><th>Aangemaakt</th>'
+                 '<th class="text-end"></th></tr></thead><tbody>')
         for task in rows:
             desc = (f'<br><small style="color:#B0A49A;">{html.escape(task["description"])}</small>'
                     if task['description'] else '')
+            if task['status'] == 'archief':
+                badge = '<span class="badge badge-muted">Gearchiveerd</span>'
+                action = post_button(
+                    '/tasks/reopen', ctx, 'Terugzetten', css='btn btn-sm btn-secondary',
+                    fields={'id': task['task_id'], 'from': 'archive'})
+            else:
+                badge = '<span class="badge badge-ok">Afgerond</span>'
+                action = ''
             body += (f'<tr><td>{html.escape(task["title"])}{desc}</td>'
+                     f'<td>{badge}</td>'
                      f'<td><a href="/customers/view?id={task["customer_id"]}">'
                      f'{html.escape(task["customer_name"])}</a></td>'
                      f'<td>{html.escape(task["assigned_to"] or "")}</td>'
                      f'<td style="color:#7A6E66;">{html.escape(str(task["due_date"] or "-"))}</td>'
                      f'<td style="color:#B0A49A;font-size:0.85rem;">'
-                     f'{html.escape(str(task["created_at"] or "")[:10])}</td></tr>')
+                     f'{html.escape(str(task["created_at"] or "")[:10])}</td>'
+                     f'<td class="text-end">{action}</td></tr>')
         body += '</tbody></table></div>'
     else:
-        body += '<p style="color:#B0A49A;">Geen voltooide taken gevonden.</p>'
+        body += '<p style="color:#B0A49A;">Niets in het archief.</p>'
     body += '</div>'
     body += page_footer()
     ctx.html(body)
+
+
+def reopen(ctx) -> None:
+    """Haal een automatisch gearchiveerde taak terug naar de actieve lijst.
+
+    De vervaldatum gaat naar vandaag, anders zou de opruimactie hem bij de
+    eerstvolgende ronde meteen opnieuw archiveren. Bij een herinnering vervalt
+    ook de pauze, zodat de normale cyclus weer geldt.
+    """
+    task_id = ctx.fint('id')
+    if not task_id:
+        ctx.not_found()
+        return
+    if not can_manage_task(ctx, task_id):
+        ctx.forbidden('Je kunt alleen je eigen taken terugzetten.')
+        return
+
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT customer_id, user_id, title, status FROM tasks WHERE id = ?',
+            (task_id,)).fetchone()
+        if not row or row['status'] != 'archief':
+            ctx.redirect('/tasks/archive')
+            return
+        conn.execute("UPDATE tasks SET status = 'open', due_date = DATE('now') WHERE id = ?",
+                     (task_id,))
+        if (row['title'] or '').startswith('Herinnering:'):
+            conn.execute(
+                'UPDATE customer_users SET reminder_paused_until = NULL '
+                'WHERE customer_id = ? AND user_id = ?',
+                (row['customer_id'], row['user_id']))
+
+    log_action(ctx.user_id, 'update', 'tasks', task_id, 'teruggezet uit archief')
+    ctx.redirect('/tasks/archive' if ctx.f('from') == 'archive' else '/dashboard')
 
 
 # ── Bulk maintenance (admin) ──────────────────────────────────────────────

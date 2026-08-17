@@ -6,6 +6,7 @@ import datetime
 import html
 import urllib.parse
 
+from .. import config
 from ..db import connect
 from ..ui import page_footer, page_header, stat_card
 
@@ -63,7 +64,11 @@ def show(ctx) -> None:
              ORDER BY n.created_at DESC LIMIT 5
         ''', (ctx.user_id,)).fetchall()
 
-        due_tasks = conn.execute('''
+        # Geen LIMIT meer. De lijst stond op LIMIT 20 met ORDER BY due_date ASC,
+        # dus de oudste verlopen herinneringen bezetten alle twintig plekken en
+        # nieuwere taken kwamen er nooit in. Taken zonder vervaldatum vielen er
+        # door `due_date IS NOT NULL` helemaal buiten.
+        due_tasks = conn.execute(f'''
             SELECT t.id AS task_id, t.title, t.due_date,
                    c.name AS customer_name, c.id AS customer_id,
                    u.username AS assigned_to
@@ -71,10 +76,18 @@ def show(ctx) -> None:
               JOIN customers c ON t.customer_id = c.id
               JOIN users u     ON t.user_id = u.id
              WHERE t.status = 'open'
-               AND t.due_date IS NOT NULL
-               AND DATE(t.due_date) <= DATE('now', '+14 day')
-             ORDER BY t.due_date ASC LIMIT 20
+               AND (t.due_date IS NULL
+                    OR DATE(t.due_date) <= DATE('now', '+{config.DASHBOARD_HORIZON_DAYS} day'))
+             ORDER BY CASE WHEN t.due_date IS NULL THEN 1 ELSE 0 END,
+                      t.due_date ASC, t.created_at ASC
         ''').fetchall()
+
+        # Wat er verderop in de tijd nog staat, zodat de teller klopt en
+        # niemand denkt dat er iets ontbreekt.
+        later_count = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE status = 'open' AND due_date IS NOT NULL "
+            f"AND DATE(due_date) > DATE('now', '+{config.DASHBOARD_HORIZON_DAYS} day')"
+        ).fetchone()[0]
 
     body = page_header('Dashboard', ctx)
     body += '<h2 class="mt-4">Dashboard</h2>'
@@ -121,9 +134,14 @@ def show(ctx) -> None:
         rows = ''
         for task in due_tasks:
             date_str = task['due_date'] or ''
-            overdue = date_str < today_iso
-            date_color = '#C0392B' if overdue else '#B0A49A'
-            label = ('<span class="badge badge-danger">verlopen</span>' if overdue else '')
+            overdue = bool(date_str) and date_str < today_iso
+            if not date_str:
+                date_color, date_text = '#B0A49A', 'geen datum'
+            elif overdue:
+                date_color, date_text = '#C0392B', date_str
+            else:
+                date_color, date_text = '#B0A49A', date_str
+            label = '<span class="badge badge-danger">verlopen</span>' if overdue else ''
             rows += (
                 f'<div class="task-row">'
                 f'<a href="/tasks/resolve?id={task["task_id"]}&from=dashboard" '
@@ -135,12 +153,20 @@ def show(ctx) -> None:
                 f'{html.escape(task["customer_name"])}</a> &middot; '
                 f'<small style="color:#B0A49A;">{html.escape(task["assigned_to"] or "")}</small> &middot; '
                 f'<small style="color:{date_color};">'
-                f'<i data-lucide=calendar class=icon></i> {html.escape(date_str)}</small></div>')
+                f'<i data-lucide=calendar class=icon></i> {html.escape(date_text)}</small></div>')
     else:
         rows = '<p style="color:#B0A49A;font-size:0.875rem;">Geen openstaande taken.</p>'
-    body += (f'<div class="card"><div class="section-title">Openstaande taken '
-             f'<a href="/tasks/archive" style="float:right;font-size:0.82rem;color:#B0A49A;'
-             f'font-weight:normal;"><i data-lucide=archive class=icon></i> Archief</a></div>'
+
+    later_note = ''
+    if later_count:
+        later_note = (f'<a href="/tasks/search?status=open" style="font-size:0.82rem;'
+                      f'color:#B0A49A;font-weight:normal;margin-right:0.75rem;">'
+                      f'+{later_count} later ingepland</a>')
+    body += (f'<div class="card"><div class="section-title">'
+             f'Openstaande taken ({len(due_tasks)})'
+             f'<span style="float:right;font-weight:normal;">{later_note}'
+             f'<a href="/tasks/archive" style="font-size:0.82rem;color:#B0A49A;">'
+             f'<i data-lucide=archive class=icon></i> Archief</a></span></div>'
              f'{rows}</div>')
 
     # ── Recent notes ──

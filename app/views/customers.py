@@ -754,16 +754,22 @@ def _tasks_card(ctx, cid, tasks_rows, users, task_error) -> str:
     if not tasks_rows:
         section += '<p style="color:#B0A49A;">Er zijn nog geen taken.</p>'
     for task in tasks_rows:
-        done = task['status'] == 'completed'
-        label = 'Voltooid' if done else 'Open'
-        color = '#5C7A5A' if done else '#B5916A'
+        status = task['status']
+        label, color = {
+            'completed': ('Voltooid', '#5C7A5A'),
+            'archief': ('Gearchiveerd', '#B0A49A'),
+        }.get(status, ('Open', '#B5916A'))
         desc = f"<br><small>{html.escape(task['description'])}</small>" if task['description'] else ''
         buttons = ''
         if can_manage_task(ctx, task['task_id']):
-            if not done:
+            if status == 'open':
                 buttons += post_button('/tasks/complete', ctx, 'Markeer voltooid',
                                        css='btn btn-sm btn-secondary',
                                        fields={'id': task['task_id'], 'customer_id': cid}) + ' '
+            elif status == 'archief':
+                buttons += post_button('/tasks/reopen', ctx, 'Terugzetten',
+                                       css='btn btn-sm btn-secondary',
+                                       fields={'id': task['task_id']}) + ' '
             buttons += post_button('/tasks/delete', ctx, 'Verwijder',
                                    confirm='Weet je zeker dat je deze taak wilt verwijderen?',
                                    fields={'id': task['task_id'], 'customer_id': cid})

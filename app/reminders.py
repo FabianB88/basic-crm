@@ -142,6 +142,60 @@ def pause_reminder(conn: sqlite3.Connection, customer_id: int, user_id: int,
     )
 
 
+def archive_overdue_tasks() -> int:
+    """Zet open taken die te lang over datum zijn in het archief.
+
+    Er stond permanent één open herinnering per klant-accountmanagerkoppeling,
+    dus bij een paar honderd relaties liep de lijst vol met jaren oude items en
+    duwden die alles anders weg.
+
+    De grens is ``max(vervaldatum, aanmaakdatum)``, niet de vervaldatum alleen.
+    Een herinnering wordt namelijk aangemaakt met vervaldatum
+    laatste-contact + 60/180 dagen, en die datum kan al lang verstreken zijn op
+    het moment dat de taak ontstaat. Zonder die max zou zo'n taak meteen weer
+    worden opgeruimd en nooit de bedoelde twee weken zichtbaar zijn.
+
+    Voor herinneringen wordt de teller daarna opnieuw gezet: de klant komt na
+    een volledige cyclus (extern 60, intern 180 dagen) vanzelf terug, zodat een
+    vergeten relatie niet stilletjes uit beeld verdwijnt.
+    """
+    cutoff = config.TASK_ARCHIVE_AFTER_DAYS
+    archived = 0
+    with connect() as conn:
+        rows = conn.execute(f'''
+            SELECT t.id, t.customer_id, t.user_id, t.title,
+                   COALESCE(c.relation_type, 'extern') AS relation_type
+              FROM tasks t
+              JOIN customers c ON c.id = t.customer_id
+             WHERE t.status = 'open'
+               AND t.due_date IS NOT NULL
+               AND MAX(t.due_date, DATE(t.created_at)) < DATE('now', '-{cutoff} day')
+        ''').fetchall()
+        if not rows:
+            return 0
+
+        today = datetime.date.today()
+        for row in rows:
+            if (row['title'] or '').startswith('Herinnering:'):
+                days = (config.REMINDER_DAYS_INTERN if row['relation_type'] == 'intern'
+                        else config.REMINDER_DAYS_EXTERN)
+                conn.execute(
+                    'UPDATE customer_users SET reminder_paused_until = ? '
+                    'WHERE customer_id = ? AND user_id = ?',
+                    ((today + datetime.timedelta(days=days)).isoformat(),
+                     row['customer_id'], row['user_id']))
+        conn.executemany("UPDATE tasks SET status = 'archief' WHERE id = ?",
+                         [(row['id'],) for row in rows])
+        archived = len(rows)
+
+    if archived:
+        from .db import log_action
+        log_action(None, 'archive', 'tasks', None,
+                   f'{archived} taken automatisch gearchiveerd '
+                   f'(meer dan {cutoff} dagen over datum)')
+    return archived
+
+
 def _loop() -> None:
     from .auth import purge_expired_sessions
     # Wait a full interval first so a restart does not immediately recreate
@@ -149,6 +203,9 @@ def _loop() -> None:
     time.sleep(config.REMINDER_INTERVAL_SECONDS)
     while True:
         try:
+            # Eerst opruimen, dan pas nieuwe herinneringen berekenen: het
+            # archiveren zet reminder_paused_until, waar refresh op let.
+            archive_overdue_tasks()
             refresh_all()
             purge_expired_sessions()
         except Exception as exc:  # pragma: no cover - background thread

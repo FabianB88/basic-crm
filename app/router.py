@@ -71,6 +71,7 @@ ROUTES: Dict[str, Route] = {
     '/tasks/delete':            _r(tasks.delete, ('POST',)),
     '/tasks/search':            _r(tasks.search),
     '/tasks/archive':           _r(tasks.archive),
+    '/tasks/reopen':            _r(tasks.reopen, ('POST',)),
     '/tasks/export':            _r(tasks.export_csv, ('GET',), ADMIN),
     '/tasks/delete-all-open':   _r(tasks.delete_all_open, ('POST',), ADMIN),
     '/tasks/delete-overdue':    _r(tasks.delete_overdue, ('POST',), ADMIN),

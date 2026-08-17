@@ -86,6 +86,10 @@ class Server(ThreadingHTTPServer):
 
 def run_server() -> None:
     init_db()
+    # Meteen opruimen bij start; daarna doet de achtergrondthread het dagelijks.
+    archived = reminders.archive_overdue_tasks()
+    if archived:
+        print(f'{archived} verlopen taken gearchiveerd')
     reminders.start_background_thread()
     with Server((config.HOST, config.PORT), CRMRequestHandler) as httpd:
         print(f'Green Office CRM draait op http://{config.HOST}:{config.PORT}')
