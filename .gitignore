@@ -1,0 +1,29 @@
+# De database bevat persoonsgegevens (namen, e-mailadressen, telefoonnummers van
+# HAN-contacten, plus governance-coachingnotities over met naam genoemde personen).
+# Die hoort niet in git en al helemaal niet op GitHub.
+crm.db
+crm.db-wal
+crm.db-shm
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Lokale configuratie
+.env
+.env.local
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
