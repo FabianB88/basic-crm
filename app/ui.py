@@ -238,7 +238,13 @@ POLL_JS = '''<script>
 def _sidebar(ctx) -> str:
     nav = "<div class='nav-section-label'>WERKRUIMTE</div>"
     nav += "<a href='/dashboard' class='nav-link'><i data-lucide=home class=icon></i> Dashboard</a>"
-    nav += "<a href='/customers' class='nav-link'><i data-lucide=users class=icon></i> Klanten</a>"
+    # Intern en extern zijn inhoudelijk twee verschillende lijsten (extern heeft
+    # klant/netwerk, intern heeft een rol), dus ze krijgen elk een eigen ingang
+    # in plaats van een filtertab op één gedeelde pagina.
+    nav += ("<a href='/customers?relatie=extern' class='nav-link'>"
+            "<i data-lucide=building-2 class=icon></i> Klanten Extern</a>")
+    nav += ("<a href='/customers?relatie=intern' class='nav-link'>"
+            "<i data-lucide=users class=icon></i> Klanten Intern</a>")
     nav += ("<a href='/messages' class='nav-link'><i data-lucide=message-circle class=icon></i> "
             "Berichten <span class='nav-badge' id='msg-badge'></span></a>")
     nav += "<a href='/tasks/search' class='nav-link'><i data-lucide=check-square class=icon></i> Taken</a>"
@@ -317,12 +323,30 @@ def page_header(title: str, ctx) -> str:
         document.getElementById('sidebar-backdrop').classList.add('open');}}
     function sidebarClose(){{document.getElementById('sidebar').classList.remove('open');
         document.getElementById('sidebar-backdrop').classList.remove('open');}}
+    // Markeert het actieve menu-item. Houdt rekening met de querystring, want
+    // "Klanten Extern" en "Klanten Intern" wijzen naar hetzelfde pad en
+    // verschillen alleen in ?relatie=.
     document.addEventListener('DOMContentLoaded',function(){{
-        var path=window.location.pathname;
+        var path = window.location.pathname;
+        var current = new URLSearchParams(window.location.search);
         document.querySelectorAll('.nav-link[href]').forEach(function(a){{
-            var h=a.getAttribute('href');
-            if(h&&h!=='/'&&path.startsWith(h))a.classList.add('active');
-            else if(h==='/'&&path==='/')a.classList.add('active');
+            var href = a.getAttribute('href');
+            if (!href || href === '#') return;
+            var bits = href.split('?');
+            var linkPath = bits[0];
+            if (linkPath === '/' ? path !== '/' : !path.startsWith(linkPath)) return;
+            if (bits[1]) {{
+                var wanted = new URLSearchParams(bits[1]);
+                var match = true;
+                wanted.forEach(function(value, key){{
+                    if (current.get(key) !== value) match = false;
+                }});
+                if (!match) return;
+            }} else if (linkPath === '/customers' && current.get('relatie')) {{
+                // Voorkomt dat een link zonder ?relatie oplicht op een gefilterde lijst.
+                return;
+            }}
+            a.classList.add('active');
         }});
     }});
     </script>

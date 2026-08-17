@@ -58,8 +58,9 @@ def index(ctx) -> None:
                                  'JOIN users u ON cu.user_id = u.id'):
             managers.setdefault(link['customer_id'], []).append(link['username'])
 
-    body = page_header('Klanten', ctx)
-    body += '<h2 class="mt-4">Klanten</h2>'
+    heading = {'extern': 'Klanten Extern', 'intern': 'Klanten Intern'}.get(relation, 'Klanten')
+    body = page_header(heading, ctx)
+    body += f'<h2 class="mt-4">{heading}</h2>'
     body += _filter_bar(search, relation, verbinding, sort_col, sort_dir)
 
     if ctx.is_admin:
@@ -116,6 +117,9 @@ def _filter_bar(search, relation, verbinding, sort_col, sort_dir) -> str:
     for value, color in [('ambassadeur', '#5C7A5A'), ('betrokken', '#7A8FA6'), ('niet betrokken', '#888')]:
         vb += pill(value.capitalize(), keep(verbinding=value), verbinding == value, color, small=True)
 
+    # Toevoegen vanuit de interne lijst zet het formulier ook op intern.
+    add_href = f'/customers/add?relatie={relation}' if relation else '/customers/add'
+
     hidden = ''
     if relation:
         hidden += f'<input type="hidden" name="relatie" value="{html.escape(relation)}">'
@@ -136,7 +140,7 @@ def _filter_bar(search, relation, verbinding, sort_col, sort_dir) -> str:
                        value="{html.escape(search)}" style="min-width:180px;">
                 <button class="btn btn-outline-success" type="submit">Zoek</button>
             </form>
-            <a href="/customers/add" class="btn btn-primary">+ Toevoegen</a>
+            <a href="{add_href}" class="btn btn-primary">+ Toevoegen</a>
         </div>
     </div>
     <div style="margin-bottom:0.75rem;">{vb}</div>'''
@@ -392,9 +396,13 @@ def delete(ctx) -> None:
     # Foreign keys are on now, so notes, tasks, interactions, documents and
     # links all cascade instead of being left behind as orphans.
     with connect() as conn:
+        row = conn.execute('SELECT relation_type FROM customers WHERE id = ?',
+                           (customer_id,)).fetchone()
+        relation = (row['relation_type'] if row else None) or 'extern'
         conn.execute('DELETE FROM customers WHERE id = ?', (customer_id,))
     log_action(ctx.user_id, 'delete', 'customers', customer_id)
-    ctx.redirect('/customers')
+    # Terug naar de lijst waar deze relatie in stond.
+    ctx.redirect(f'/customers?relatie={relation}')
 
 
 def _customer_form(ctx, customer: Optional[Dict[str, Any]], error: str = '') -> None:
@@ -406,7 +414,9 @@ def _customer_form(ctx, customer: Optional[Dict[str, Any]], error: str = '') -> 
     def val(key, default=''):
         return html.escape(str((customer or {}).get(key) or default))
 
-    relation = (customer or {}).get('relation_type') or 'extern'
+    # Nieuw record: neem de lijst over waar de gebruiker vandaan kwam.
+    relation = ((customer or {}).get('relation_type')
+                or ctx.choice(ctx.q('relatie'), config.RELATION_TYPES, 'extern'))
     role_val = (customer or {}).get('role') or ''
     verbinding = (customer or {}).get('verbinding') or ''
     category = (customer or {}).get('category') or 'klant'
