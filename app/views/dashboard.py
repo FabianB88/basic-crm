@@ -8,7 +8,7 @@ import urllib.parse
 
 from .. import config
 from ..db import connect
-from ..ui import page_footer, page_header, stat_card
+from ..ui import page_footer, page_header, post_button, stat_card
 
 VERBINDING_TABS = [('ambassadeur', '#5C7A5A'), ('betrokken', '#7A8FA6'), ('niet betrokken', '#B0A49A')]
 
@@ -58,10 +58,11 @@ def show(ctx) -> None:
         )}
 
         notes = conn.execute('''
-            SELECT n.content, n.created_at, c.name AS customer_name
+            SELECT n.id AS note_id, n.content, n.created_at,
+                   c.id AS customer_id, c.name AS customer_name
               FROM notes n JOIN customers c ON n.customer_id = c.id
              WHERE n.user_id = ?
-             ORDER BY n.created_at DESC LIMIT 5
+             ORDER BY n.created_at DESC, n.id DESC LIMIT 5
         ''', (ctx.user_id,)).fetchall()
 
         # Geen LIMIT meer. De lijst stond op LIMIT 20 met ORDER BY due_date ASC,
@@ -175,10 +176,20 @@ def show(ctx) -> None:
         for note in notes:
             content = note['content'] or ''
             snippet = (content[:100] + '…') if len(content) > 100 else content
-            note_html += (f'<div class="task-row"><strong>'
-                          f'{html.escape(note["customer_name"])}</strong><br>'
+            remove = post_button(
+                '/notes/delete', ctx, '<i data-lucide=trash-2 class=icon></i>',
+                confirm='Weet je zeker dat je deze notitie wilt verwijderen?',
+                css='btn btn-sm btn-danger',
+                fields={'id': note['note_id'], 'customer_id': note['customer_id'],
+                        'from': 'dashboard'},
+                title='Notitie verwijderen')
+            note_html += (f'<div class="task-row">'
+                          f'<div style="float:right;">{remove}</div>'
+                          f'<a href="/customers/view?id={note["customer_id"]}" '
+                          f'style="font-weight:600;">{html.escape(note["customer_name"])}</a><br>'
                           f'{html.escape(snippet)}'
-                          f'<div style="font-size:0.8rem;color:#7A6E66;">{note["created_at"]}</div></div>')
+                          f'<div style="font-size:0.8rem;color:#7A6E66;">'
+                          f'{html.escape(str(note["created_at"] or ""))}</div></div>')
     else:
         note_html = '<p style="color:#B0A49A;">Er zijn nog geen notities.</p>'
     body += f'<div class="card"><div class="section-title">Recente notities</div>{note_html}</div>'

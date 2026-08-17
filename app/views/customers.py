@@ -848,18 +848,29 @@ def _interactions_card(ctx, cid, interactions) -> str:
 
 # ── Notes ─────────────────────────────────────────────────────────────────
 def delete_note(ctx) -> None:
+    """Verwijder een notitie, vanaf de klantpagina of vanaf het dashboard."""
     note_id = ctx.fint('id')
-    customer_id = ctx.fint('customer_id')
-    if not note_id or not customer_id:
+    if not note_id:
         ctx.not_found()
         return
     if not can_manage_note(ctx, note_id):
         ctx.forbidden('Je kunt alleen je eigen notities verwijderen.')
         return
+
+    customer_id = ctx.fint('customer_id')
     with connect() as conn:
+        if not customer_id:
+            row = conn.execute('SELECT customer_id FROM notes WHERE id = ?',
+                               (note_id,)).fetchone()
+            customer_id = row['customer_id'] if row else None
         conn.execute('DELETE FROM notes WHERE id = ?', (note_id,))
     log_action(ctx.user_id, 'delete', 'notes', note_id)
-    ctx.redirect(f'/customers/view?id={customer_id}')
+
+    # Terug naar waar je vandaan kwam.
+    if ctx.f('from') == 'dashboard':
+        ctx.redirect('/dashboard')
+    else:
+        ctx.redirect(f'/customers/view?id={customer_id}' if customer_id else '/customers')
 
 
 # ── Interactions ──────────────────────────────────────────────────────────
