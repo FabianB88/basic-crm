@@ -303,10 +303,10 @@ def archive(ctx) -> None:
 
     body = page_header('Archief', ctx)
     body += '<h2 class="mt-4"><i data-lucide=archive class=icon></i> Archief</h2>'
-    body += (f'<p style="color:#7A6E66;font-size:0.875rem;">Afgeronde taken en taken die '
-             f'automatisch zijn opgeruimd omdat ze meer dan '
-             f'{config.TASK_ARCHIVE_AFTER_DAYS} dagen over hun vervaldatum stonden. '
-             f'Automatisch gearchiveerde taken kun je terugzetten.</p>')
+    body += (f'<p style="color:#7A6E66;font-size:0.875rem;">Afgeronde taken, en taken die '
+             f'automatisch zijn opgeruimd — meer dan {config.TASK_ARCHIVE_AFTER_DAYS} dagen '
+             f'over hun vervaldatum, of meegenomen in de eenmalige schoonmaak. '
+             f'Gearchiveerde taken kun je per stuk terugzetten.</p>')
 
     user_options = '<option value="">Alle gebruikers</option>' + ''.join(
         f'<option value="{u["id"]}"{" selected" if filter_uid == u["id"] else ""}>'

@@ -518,6 +518,29 @@ def _run_data_migrations(cur: sqlite3.Cursor) -> None:
             ''', (row[0],))
         _mark_migration(cur, 'link_anouk_intern_2026')
 
+    # Eenmalige schone lei: alles wat op het moment van deze deploy nog open
+    # stond gaat het archief in en komt niet vanzelf terug. De backlog bestond
+    # grotendeels uit jaren oude herinneringen die het dashboard dichtslibden.
+    #
+    # De pauze staat daarna op 9999-12-31, dus de herinneringsmotor maakt uit
+    # zichzelf niets nieuws aan. Zodra er echte activiteit is bij een klant
+    # (notitie, interactie, taak of een nieuwe koppeling) heft
+    # reminders.refresh_for_customer die pauze op en start de normale cyclus
+    # van 60/180 dagen weer voor die ene klant.
+    #
+    # Losse taken zijn per stuk terug te halen via het archief.
+    if not _migration_done(cur, 'archive_open_backlog_2026'):
+        moved = cur.execute("UPDATE tasks SET status = 'archief' WHERE status = 'open'").rowcount
+        cur.execute("UPDATE customer_users SET reminder_paused_until = '9999-12-31'")
+        _mark_migration(cur, 'archive_open_backlog_2026')
+        if moved:
+            cur.execute(
+                'INSERT INTO audit_logs (user_id, action, table_name, row_id, details) '
+                'VALUES (NULL, ?, ?, NULL, ?)',
+                ('archive', 'tasks',
+                 f'eenmalige schoonmaak: {moved} openstaande taken gearchiveerd'))
+            print(f'[migratie] {moved} openstaande taken gearchiveerd (eenmalige schone lei)')
+
     # Older rows were written before project_type existed on card templates.
     if not _migration_done(cur, 'backfill_card_project_type'):
         for pt in ('communicatie', 'werkveld', 'evenementen', 'onderwijs'):

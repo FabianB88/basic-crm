@@ -118,11 +118,23 @@ def _refresh(conn: sqlite3.Connection, customer_ids: Optional[Iterable[int]] = N
 
 
 def refresh_for_customer(customer_id: Optional[int]) -> None:
-    """Recalculate reminders for one customer. Cheap enough to call on writes."""
+    """Herbereken de herinneringen van één klant. Goedkoop genoeg voor elke write.
+
+    Wordt aangeroepen na echte activiteit: een notitie, een interactie, een
+    taak of een nieuwe accountmanagerkoppeling. Dat heft ook een lopende pauze
+    op, of die nu van een weggeklikte herinnering komt, van het automatisch
+    archiveren, of van de eenmalige schone lei bij de deploy. Zodra iemand iets
+    met een klant doet, loopt de normale cyclus voor die klant weer.
+
+    ``refresh_all()`` doet dit bewust niet: de dagelijkse ronde mag pauzes niet
+    stilzwijgend opheffen.
+    """
     if not customer_id:
         return
     try:
         with connect() as conn:
+            conn.execute('UPDATE customer_users SET reminder_paused_until = NULL '
+                         'WHERE customer_id = ?', (customer_id,))
             _refresh(conn, [customer_id])
     except sqlite3.Error as exc:  # never let a reminder refresh break a request
         print(f'[reminders] refresh voor klant {customer_id} mislukt: {exc}')
